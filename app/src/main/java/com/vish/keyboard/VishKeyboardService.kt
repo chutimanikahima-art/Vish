@@ -72,8 +72,8 @@ class VishKeyboardService : InputMethodService() {
 
         rows.forEachIndexed { index, row ->
             val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            if (!sinhala && index == 1) setPadding(dp(10), 0, dp(10), 0)
-            if (!sinhala && index == 2) setPadding(dp(24), 0, dp(4), 0)
+            if (!sinhala && index == 1) line.setPadding(dp(10), 0, dp(10), 0)
+            if (!sinhala && index == 2) line.setPadding(dp(24), 0, dp(4), 0)
             row.forEach { ch ->
                 val shown = if (!sinhala && shifted) ch.uppercase() else ch
                 line.addView(makeKey(shown, 1f, keyColor, 49, 19f) {
