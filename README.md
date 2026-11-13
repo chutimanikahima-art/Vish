@@ -1,42 +1,33 @@
-# VISH Keyboard
+# VISH Keyboard Plus (v1.1)
 
-A starter native Android Input Method Editor (IME) with a dark UI and English/Sinhala key layouts.
+Native Kotlin Android keyboard with English and direct Sinhala Unicode layouts, emoji quick bar, adjustable keyboard height, background color/image selection, VISH logo and developer credit.
 
-## Build with GitHub Actions
-1. Create a GitHub repository named `VISH`.
-2. Upload/push the contents of this folder to the repository root.
-3. Open **Actions** → **Build VISH APK** → **Run workflow** (or push to `main`).
-4. When complete, open the run → **Artifacts** → download `VISH-Keyboard-debug`.
-5. Extract the ZIP and install `app-debug.apk` on your Android phone.
+## Build
+Push this project root to GitHub branch `main`. GitHub Actions builds `app-debug.apk` and uploads it as `VISH-Keyboard-debug`.
 
-## Termux upload workflow
-Install Termux from F-Droid or the official GitHub release, then:
+## Termux update
+Extract this ZIP into a new folder, or replace the old project files. Then:
 ```sh
-pkg update -y
-pkg install git -y
-git clone https://github.com/YOUR-USERNAME/VISH.git
-cd VISH
-```
-If you downloaded this project ZIP to your phone, extract it first and create a GitHub repo, then:
-```sh
+cd /storage/emulated/0/Download/VISH-Keyboard-Plus
 git init
 git add .
-git commit -m "Initial VISH keyboard app"
+git commit -m "VISH customization and emoji bar"
 git branch -M main
-git remote add origin https://github.com/YOUR-USERNAME/VISH.git
+git remote add origin https://github.com/chutimanikahima-art/Vish.git
 git push -u origin main
 ```
-GitHub will run the workflow automatically after the push. You can also run it manually from Actions.
+If the remote already exists, use `git remote set-url origin https://github.com/chutimanikahima-art/Vish.git` instead of `git remote add`.
+If Git says non-fast-forward because the previous project is already on GitHub, use:
+```sh
+git pull --rebase origin main
+git push
+```
+Do not use force push.
 
-## Enable on Android
-1. Install the APK.
-2. Open VISH.
-3. Tap **Enable VISH Keyboard** and enable it in Android Settings.
-4. Return to VISH and tap **Select VISH Keyboard**.
-5. Select VISH. Open any text field to use it. Tap 🌐 to switch English/Sinhala.
+## Enable
+Install APK, enable VISH in Android Input Method settings, then select VISH. Use the app to change height, background color or image. Open a text field to see changes. The emoji quick bar is above the keys; 🌐 switches layouts.
 
 ## Notes
-- This is a starter keyboard: Sinhala layout uses direct Sinhala Unicode keys (not phonetic transliteration).
-- It currently does not provide predictive text, autocorrect, clipboard history, or a full emoji panel.
-- A keyboard can process everything typed into it. This starter has no internet permission and does not transmit keystrokes.
-- Debug APK is for testing. A release APK should be signed before public distribution.
+- Sinhala currently uses direct Unicode key entry, not phonetic transliteration.
+- No network permission is declared; typed text is not transmitted by this starter.
+- Image selection uses Android's document picker and persists the selected image permission.
