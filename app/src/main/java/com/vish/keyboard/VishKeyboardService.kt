@@ -7,6 +7,9 @@ import android.graphics.Typeface
 import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
+import android.content.res.ColorStateList
+import android.content.ClipboardManager
 import android.media.AudioManager
 import android.net.Uri
 import android.text.SpannableString
@@ -24,6 +27,7 @@ class VishKeyboardService : InputMethodService() {
     // 0 = English, 1 = Singlish transliteration, 2 = Sinhala key layout
     private var keyboardMode = 0
     private var shifted = false
+    private var calculatorMode = false
     private var keyboardRoot: View? = null
     private val singlishBuffer = StringBuilder()
 
@@ -31,7 +35,7 @@ class VishKeyboardService : InputMethodService() {
 
     private val preferenceListener =
         android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key in setOf("theme", "height", "keySize", "color", "image", "sound", "vibration")) {
+            if (key in setOf("theme", "height", "keySize", "color", "image", "sound", "vibration", "touchEffect", "keyOpacity", "keyRoundness", "fontStyle")) {
                 if (keyboardRoot != null && currentInputConnection != null) {
                     setInputView(buildKeyboard())
                 }
@@ -90,7 +94,7 @@ class VishKeyboardService : InputMethodService() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        toolbar.addView(makeKey("▦", .75f, c.specialKey, 34, 19f, c) {})
+        toolbar.addView(makeKey("▤", .8f, c.specialKey, 34, 18f, c) { pasteClipboard() })
         toolbar.addView(TextView(this).apply {
             text = when (keyboardMode) {
                 1 -> "SINGLISH  →  සිංහල"
@@ -102,7 +106,12 @@ class VishKeyboardService : InputMethodService() {
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
         }, LinearLayout.LayoutParams(0, dp(34), 1f))
-        toolbar.addView(makeKey("⋯", .75f, c.specialKey, 34, 19f, c) {})
+        toolbar.addView(makeKey(if (calculatorMode) "ABC" else "SCI", .9f,
+            if (calculatorMode) c.accent else c.specialKey, 34, 13f, c) {
+            calculatorMode = !calculatorMode
+            shifted = false
+            setInputView(buildKeyboard())
+        })
         root.addView(toolbar)
 
         val emojis = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -123,7 +132,14 @@ class VishKeyboardService : InputMethodService() {
             root.addView(numbers)
         }
 
-        val rows = if (keyboardMode == 2) listOf(
+        val rows = if (calculatorMode) listOf(
+            listOf("sin", "cos", "tan", "π", "(", ")"),
+            listOf("√", "x²", "^", "log", "ln", "÷"),
+            listOf("7", "8", "9", "×", "⌫"),
+            listOf("4", "5", "6", "+", "−"),
+            listOf("1", "2", "3", "%", "="),
+            listOf("0", ".", "Ans", "AC")
+        ) else if (keyboardMode == 2) listOf(
             listOf("්","ා","ැ","ෑ","ි","ී","ු","ූ","ෙ","ේ"),
             listOf("අ","ආ","ඇ","ඉ","ඊ","උ","එ","ඔ","ක","ග"),
             listOf("ච","ජ","ට","ඩ","ත","ද","න","ප","බ"),
@@ -144,7 +160,7 @@ class VishKeyboardService : InputMethodService() {
             if (keyboardMode != 2 && index == 1) {
                 line.setPadding(dp(10), 0, dp(10), 0)
             }
-            if (keyboardMode != 2 && index == 2) {
+            if (!calculatorMode && keyboardMode != 2 && index == 2) {
                 line.addView(makeKey("⇧", 1.25f, c.specialKey, keyHeight, 21f, c) {
                     shifted = !shifted
                     setInputView(buildKeyboard())
@@ -152,9 +168,24 @@ class VishKeyboardService : InputMethodService() {
             }
 
             row.forEach { character ->
-                val shown = if (keyboardMode != 2 && shifted) character.uppercase() else character
-                line.addView(makeKey(shown, 1f, c.key, keyHeight, 20f, c) {
-                    if (keyboardMode == 1) {
+                val shown = if (!calculatorMode && keyboardMode != 2 && shifted) character.uppercase() else character
+                val specialCalc = calculatorMode && character in listOf("⌫", "AC", "=")
+                line.addView(makeKey(shown, if (calculatorMode && specialCalc) 1.12f else 1f,
+                    if (calculatorMode && character == "=") c.accent else if (specialCalc) c.specialKey else c.key,
+                    keyHeight, if (character.length > 2) 13f else 19f, c) {
+                    if (calculatorMode) {
+                        when (character) {
+                            "⌫" -> currentInputConnection?.deleteSurroundingText(1, 0)
+                            "AC" -> currentInputConnection?.commitText("", 1)
+                            "Ans" -> currentInputConnection?.commitText("Ans", 1)
+                            "sin", "cos", "tan", "log", "ln" -> currentInputConnection?.commitText("$character(", 1)
+                            "√" -> currentInputConnection?.commitText("√(", 1)
+                            "×" -> currentInputConnection?.commitText("*", 1)
+                            "÷" -> currentInputConnection?.commitText("/", 1)
+                            "−" -> currentInputConnection?.commitText("-", 1)
+                            else -> currentInputConnection?.commitText(character, 1)
+                        }
+                    } else if (keyboardMode == 1) {
                         singlishBuffer.append(character)
                         currentInputConnection?.setComposingText(transliterate(singlishBuffer.toString()), 1)
                     } else {
@@ -168,7 +199,7 @@ class VishKeyboardService : InputMethodService() {
                 })
             }
 
-            if (keyboardMode != 2 && index == 2) {
+            if (!calculatorMode && keyboardMode != 2 && index == 2) {
                 line.addView(makeKey("⌫", 1.25f, c.specialKey, keyHeight, 20f, c) {
                     if (keyboardMode == 1 && singlishBuffer.isNotEmpty()) {
                         singlishBuffer.deleteCharAt(singlishBuffer.length - 1)
@@ -182,7 +213,10 @@ class VishKeyboardService : InputMethodService() {
 
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val bottomHeight = (keyHeight + 1).coerceAtLeast(46)
-        bottom.addView(makeKey("?123", 1.15f, c.specialKey, bottomHeight, 13f, c) {})
+        bottom.addView(makeKey(if (calculatorMode) "ABC" else "?123", 1.15f, c.specialKey, bottomHeight, 13f, c) {
+            calculatorMode = false
+            setInputView(buildKeyboard())
+        })
         bottom.addView(makeKey("☺", .8f, c.specialKey, bottomHeight, 19f, c) {
             commitPendingSinglish("🙂")
         })
@@ -192,8 +226,8 @@ class VishKeyboardService : InputMethodService() {
             shifted = false
             setInputView(buildKeyboard())
         })
-        bottom.addView(makeKey(if (keyboardMode == 1) "Singlish" else "VISH Keyboard", 2.8f,
-            c.key, bottomHeight, 13f, c) { commitPendingSinglish(" ") })
+        bottom.addView(makeKey(if (calculatorMode) "Scientific" else if (keyboardMode == 1) "Singlish" else "VISH Keyboard", 2.8f,
+            c.key, bottomHeight, 13f, c) { if (!calculatorMode) commitPendingSinglish(" ") })
         bottom.addView(makeKey(",", .65f, c.specialKey, bottomHeight, 18f, c) {
             commitPendingSinglish(",")
         })
@@ -209,6 +243,20 @@ class VishKeyboardService : InputMethodService() {
         })
         root.addView(bottom)
         return root
+    }
+
+    private fun pasteClipboard() {
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = clipboard.primaryClip
+            if (clip != null && clip.itemCount > 0) {
+                val value = clip.getItemAt(0).coerceToText(this)?.toString().orEmpty()
+                if (value.isNotEmpty()) {
+                    commitPendingSinglish("")
+                    currentInputConnection?.commitText(value, 1)
+                }
+            }
+        } catch (_: Exception) { }
     }
 
     private fun commitPendingSinglish(after: String) {
@@ -288,11 +336,17 @@ class VishKeyboardService : InputMethodService() {
         setTextColor(colors.text)
         gravity = Gravity.CENTER
         typeface = Typeface.DEFAULT
-        background = GradientDrawable().apply {
-            setColor(color)
-            cornerRadius = dp(9).toFloat()
-            setStroke(dp(1), Color.argb(28, Color.red(colors.text), Color.green(colors.text), Color.blue(colors.text)))
+        val opacity = prefs.getInt("keyOpacity", 94).coerceIn(35, 100)
+        val alphaColor = Color.argb((opacity * 255 / 100), Color.red(color), Color.green(color), Color.blue(color))
+        val shape = GradientDrawable().apply {
+            setColor(alphaColor)
+            cornerRadius = dp(prefs.getInt("keyRoundness", 12).coerceIn(4, 22)).toFloat()
+            setStroke(dp(1), Color.argb(34, Color.red(colors.text), Color.green(colors.text), Color.blue(colors.text)))
         }
+        background = if (prefs.getBoolean("touchEffect", true)) {
+            RippleDrawable(ColorStateList.valueOf(Color.argb(100, colors.accent)), shape, null)
+        } else shape
+        typeface = if (prefs.getString("fontStyle", "rounded") == "mono") Typeface.MONOSPACE else Typeface.DEFAULT
         layoutParams = LinearLayout.LayoutParams(0, dp(height), weight).apply {
             setMargins(dp(2), dp(3), dp(2), dp(3))
         }

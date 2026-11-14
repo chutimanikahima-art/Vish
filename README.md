@@ -51,3 +51,17 @@ git push -u origin main
 
 
 VISH Keyboard v2.3 UI update: larger default key sizing (56dp), 420dp default keyboard height, rounded keys, and accent-color ripple feedback on key taps.
+
+
+## VISH Keyboard 2.4 – Yumi-inspired feature update
+
+This update adds a Yumi-inspired customization experience while keeping VISH branding:
+- Clipboard paste shortcut on the keyboard toolbar.
+- Scientific input panel (SCI) with common math function keys.
+- Touch ripple feedback, adjustable key opacity and roundness.
+- Key font choice (rounded/default or monospace).
+- Theme gallery presets and existing photo background picker.
+- Larger default keyboard and key sizes.
+- Existing English, Singlish and Sinhala modes remain.
+
+Build with GitHub Actions using the existing workflow. The APK must be tested on-device; scientific keys insert expressions into the active text field and do not evaluate expressions inside the keyboard.

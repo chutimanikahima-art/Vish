@@ -239,26 +239,70 @@ class MainActivity : Activity() {
         })
 
         parent.addView(section("Keyboard size", p))
-        val currentHeight = prefs.getInt("height", 390).coerceIn(320, 440)
+        val currentHeight = prefs.getInt("height", 410).coerceIn(340, 460)
         parent.addView(sliderSetting(
             "Keyboard height",
             currentHeight,
-            320,
-            440,
+            340,
+            460,
             "dp",
             p,
             "height"
         ))
-        val currentKeySize = prefs.getInt("keySize", 52).coerceIn(46, 60)
+        val currentKeySize = prefs.getInt("keySize", 56).coerceIn(48, 64)
         parent.addView(sliderSetting(
             "Letter key size",
             currentKeySize,
-            46,
-            60,
+            48,
+            64,
             "dp",
             p,
             "keySize"
         ))
+
+        parent.addView(section("Key appearance", p))
+        parent.addView(sliderSetting(
+            "Key opacity",
+            prefs.getInt("keyOpacity", 94).coerceIn(35, 100),
+            35, 100, "%", p, "keyOpacity"
+        ))
+        parent.addView(sliderSetting(
+            "Key roundness",
+            prefs.getInt("keyRoundness", 12).coerceIn(4, 22),
+            4, 22, "dp", p, "keyRoundness"
+        ))
+        parent.addView(toggleRow(
+            "Touch light / ripple effect",
+            prefs.getBoolean("touchEffect", true),
+            p, "touchEffect"
+        ))
+        parent.addView(actionButton(
+            if (prefs.getString("fontStyle", "rounded") == "mono") "Use rounded key font" else "Use monospace key font",
+            p
+        ) {
+            val next = if (prefs.getString("fontStyle", "rounded") == "mono") "rounded" else "mono"
+            prefs.edit().putString("fontStyle", next).apply()
+            toast("Keyboard font updated")
+            currentPage = "settings"
+            render()
+        })
+
+        parent.addView(section("Theme gallery", p))
+        parent.addView(text("Choose a ready-made keyboard color style.", 13f, p.muted))
+        val gallery = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        listOf(
+            "Ocean blue" to "#DCE8F7",
+            "Mint pastel" to "#DDEFEA",
+            "Lavender" to "#EDE3F5",
+            "Warm cream" to "#F4E8D8",
+            "Midnight" to "#151B2E"
+        ).forEach { (name, hex) ->
+            gallery.addView(actionButton(name, p) {
+                prefs.edit().putInt("color", Color.parseColor(hex)).remove("image").apply()
+                toast("$name theme applied")
+            })
+        }
+        parent.addView(gallery)
 
         parent.addView(section("Keyboard background", p))
         parent.addView(text("Background color", 14f, p.text, true))
@@ -305,9 +349,15 @@ class MainActivity : Activity() {
             p,
             "vibration"
         ))
+        parent.addView(toggleRow(
+            "Touch light effect",
+            prefs.getBoolean("touchEffect", true),
+            p,
+            "touchEffect"
+        ))
 
         parent.addView(space(16))
-        parent.addView(text("VISH Keyboard  •  Version 2.2", 13f, p.muted).apply {
+        parent.addView(text("VISH Keyboard  •  Version 2.4", 13f, p.muted).apply {
             gravity = Gravity.CENTER
         })
         parent.addView(text("Developed by Vishath Kaushika", 12f, p.muted).apply {
