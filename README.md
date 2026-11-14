@@ -41,3 +41,10 @@ git push -u origin main
 - Return to VISH and tap Select VISH Keyboard.
 - Choose VISH from the keyboard picker.
 - Open Settings in the VISH app and choose Dark or Light. The keyboard uses the same saved theme.
+
+
+## Version 2.2 keyboard update
+- Larger, evenly spaced QWERTY keys.
+- Shift on the left and Backspace on the right of the letter row.
+- Three input modes: English, Singlish-to-Sinhala (basic phonetic conversion), and Sinhala layout.
+- Default keyboard height and letter key size increased.

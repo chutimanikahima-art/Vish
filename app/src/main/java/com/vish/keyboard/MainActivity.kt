@@ -239,22 +239,22 @@ class MainActivity : Activity() {
         })
 
         parent.addView(section("Keyboard size", p))
-        val currentHeight = prefs.getInt("height", 370).coerceIn(300, 430)
+        val currentHeight = prefs.getInt("height", 390).coerceIn(320, 440)
         parent.addView(sliderSetting(
             "Keyboard height",
             currentHeight,
-            300,
-            430,
+            320,
+            440,
             "dp",
             p,
             "height"
         ))
-        val currentKeySize = prefs.getInt("keySize", 49).coerceIn(42, 58)
+        val currentKeySize = prefs.getInt("keySize", 52).coerceIn(46, 60)
         parent.addView(sliderSetting(
             "Letter key size",
             currentKeySize,
-            42,
-            58,
+            46,
+            60,
             "dp",
             p,
             "keySize"
@@ -307,7 +307,7 @@ class MainActivity : Activity() {
         ))
 
         parent.addView(space(16))
-        parent.addView(text("VISH Keyboard  •  Version 2.0", 13f, p.muted).apply {
+        parent.addView(text("VISH Keyboard  •  Version 2.2", 13f, p.muted).apply {
             gravity = Gravity.CENTER
         })
         parent.addView(text("Developed by Vishath Kaushika", 12f, p.muted).apply {
