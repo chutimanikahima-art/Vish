@@ -13,3 +13,6 @@ VISH Keyboard v1.2 layout patch
    git push
 
 This patch adds a compact VISH toolbar, emoji strip, number row, larger 49dp letter keys, staggered QWERTY rows and a wider bottom space key. Select VISH again after installing the new APK.
+
+
+VISH Keyboard v2.3 UI update: larger default key sizing (56dp), 420dp default keyboard height, rounded keys, and accent-color ripple feedback on key taps.
