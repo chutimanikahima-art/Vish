@@ -344,7 +344,7 @@ class VishKeyboardService : InputMethodService() {
             setStroke(dp(1), Color.argb(34, Color.red(colors.text), Color.green(colors.text), Color.blue(colors.text)))
         }
         background = if (prefs.getBoolean("touchEffect", true)) {
-            RippleDrawable(ColorStateList.valueOf(Color.argb(100, colors.accent)), shape, null)
+            RippleDrawable(ColorStateList.valueOf(Color.argb(100, Color.red(colors.accent), Color.green(colors.accent), Color.blue(colors.accent))), shape, null)
         } else shape
         typeface = if (prefs.getString("fontStyle", "rounded") == "mono") Typeface.MONOSPACE else Typeface.DEFAULT
         layoutParams = LinearLayout.LayoutParams(0, dp(height), weight).apply {
