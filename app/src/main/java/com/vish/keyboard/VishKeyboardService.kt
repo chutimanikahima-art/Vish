@@ -21,6 +21,8 @@ import android.view.HapticFeedbackConstants
 import android.view.inputmethod.EditorInfo
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.ScrollView
+import android.widget.PopupWindow
 
 class VishKeyboardService : InputMethodService() {
 
@@ -70,8 +72,8 @@ class VishKeyboardService : InputMethodService() {
 
     private fun buildKeyboard(): View {
         val c = keyboardPalette()
-        val height = prefs.getInt("height", 390).coerceIn(320, 440)
-        val keyHeight = prefs.getInt("keySize", 52).coerceIn(46, 60)
+        val height = prefs.getInt("height", 410).coerceIn(340, 460)
+        val keyHeight = prefs.getInt("keySize", 56).coerceIn(48, 64)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -94,12 +96,12 @@ class VishKeyboardService : InputMethodService() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        toolbar.addView(makeKey("▤", .8f, c.specialKey, 34, 18f, c) { pasteClipboard() })
+        toolbar.addView(makeKey("▤", .8f, c.specialKey, 34, 18f, c) { showClipboardPopup() })
         toolbar.addView(TextView(this).apply {
             text = when (keyboardMode) {
                 1 -> "SINGLISH  →  සිංහල"
                 2 -> "සිංහල"
-                else -> "V I S H"
+                else -> "H I M A"
             }
             textSize = 13f
             setTextColor(c.text)
@@ -226,7 +228,7 @@ class VishKeyboardService : InputMethodService() {
             shifted = false
             setInputView(buildKeyboard())
         })
-        bottom.addView(makeKey(if (calculatorMode) "Scientific" else if (keyboardMode == 1) "Singlish" else "VISH Keyboard", 2.8f,
+        bottom.addView(makeKey(if (calculatorMode) "Scientific" else if (keyboardMode == 1) "Singlish" else "Hima Board", 2.8f,
             c.key, bottomHeight, 13f, c) { if (!calculatorMode) commitPendingSinglish(" ") })
         bottom.addView(makeKey(",", .65f, c.specialKey, bottomHeight, 18f, c) {
             commitPendingSinglish(",")
@@ -245,19 +247,158 @@ class VishKeyboardService : InputMethodService() {
         return root
     }
 
-    private fun pasteClipboard() {
-        try {
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    private fun showClipboardPopup() {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val currentText = try {
             val clip = clipboard.primaryClip
-            if (clip != null && clip.itemCount > 0) {
-                val value = clip.getItemAt(0).coerceToText(this)?.toString().orEmpty()
-                if (value.isNotEmpty()) {
-                    commitPendingSinglish("")
-                    currentInputConnection?.commitText(value, 1)
+            if (clip != null && clip.itemCount > 0) clip.getItemAt(0).coerceToText(this)?.toString().orEmpty()
+            else ""
+        } catch (_: Exception) { "" }
+
+        fun readPins(): MutableList<String> {
+            val encoded = prefs.getString("clipboard_pins", "").orEmpty()
+            return encoded.split("|").filter { it.isNotBlank() }.mapNotNull {
+                try {
+                    String(android.util.Base64.decode(it, android.util.Base64.DEFAULT), Charsets.UTF_8)
+                } catch (_: Exception) { null }
+            }.toMutableList()
+        }
+        fun savePins(items: List<String>) {
+            val encoded = items.distinct().take(20).joinToString("|") {
+                android.util.Base64.encodeToString(it.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+            }
+            prefs.edit().putString("clipboard_pins", encoded).apply()
+        }
+        fun label(text: String, size: Float, color: Int, bold: Boolean = false) =
+            TextView(this).apply {
+                this.text = text
+                textSize = size
+                setTextColor(color)
+                gravity = Gravity.CENTER_VERTICAL
+                if (bold) typeface = Typeface.DEFAULT_BOLD
+                setPadding(dp(12), dp(9), dp(12), dp(9))
+            }
+        fun chip(text: String, action: () -> Unit) = TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setPadding(dp(13), dp(9), dp(13), dp(9))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.rgb(235, 91, 181), Color.rgb(129, 83, 244))
+            ).apply { cornerRadius = dp(13).toFloat() }
+            setOnClickListener { action() }
+        }
+
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(27, 23, 42))
+                cornerRadius = dp(24).toFloat()
+                setStroke(dp(1), Color.rgb(68, 55, 91))
+            }
+            elevation = dp(12).toFloat()
+        }
+        val titleRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        titleRow.addView(label("▤  Clipboard", 19f, Color.WHITE, true),
+            LinearLayout.LayoutParams(0, -2, 1f))
+        titleRow.addView(label("✕", 18f, Color.LTGRAY).apply {
+            gravity = Gravity.CENTER
+            setOnClickListener { popupRef?.dismiss() }
+        })
+        panel.addView(titleRow)
+        panel.addView(label("Recent copied text and your pinned notes", 12f, Color.LTGRAY))
+        panel.addView(label("LATEST", 11f, Color.rgb(184, 145, 255), true))
+        val latest = if (currentText.isBlank()) "Copy some text first, then open Clipboard again." else currentText
+        val latestCard = label(latest.take(600), 14f, Color.WHITE).apply {
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(43, 37, 59))
+                cornerRadius = dp(14).toFloat()
+            }
+            maxLines = 4
+            setOnClickListener {
+                if (currentText.isNotBlank()) {
+                    currentInputConnection?.commitText(currentText, 1)
+                    popupRef?.dismiss()
                 }
             }
-        } catch (_: Exception) { }
+        }
+        panel.addView(latestCard, LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = dp(5)
+        })
+        val pinCurrent = chip("＋  Pin latest", {
+            if (currentText.isNotBlank()) {
+                val pins = readPins()
+                pins.remove(currentText)
+                pins.add(0, currentText)
+                savePins(pins)
+                popupRef?.dismiss()
+                showClipboardPopup()
+            }
+        })
+        panel.addView(pinCurrent, LinearLayout.LayoutParams(-1, dp(42)).apply {
+            topMargin = dp(8)
+        })
+        panel.addView(label("PINNED", 11f, Color.rgb(184, 145, 255), true))
+        val pinnedScroll = ScrollView(this).apply {
+            isFillViewport = false
+        }
+        val pinnedList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val pins = readPins()
+        if (pins.isEmpty()) {
+            pinnedList.addView(label("No pinned clips yet. Pin your useful text here.", 12f, Color.LTGRAY))
+        } else {
+            pins.forEach { item ->
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    background = GradientDrawable().apply {
+                        setColor(Color.rgb(43, 37, 59))
+                        cornerRadius = dp(12).toFloat()
+                    }
+                }
+                row.addView(label(item.take(90), 13f, Color.WHITE).apply {
+                    maxLines = 2
+                    setOnClickListener {
+                        currentInputConnection?.commitText(item, 1)
+                        popupRef?.dismiss()
+                    }
+                }, LinearLayout.LayoutParams(0, -2, 1f))
+                row.addView(label("×", 19f, Color.rgb(255, 139, 174)).apply {
+                    gravity = Gravity.CENTER
+                    setOnClickListener {
+                        val updated = readPins()
+                        updated.remove(item)
+                        savePins(updated)
+                        popupRef?.dismiss()
+                        showClipboardPopup()
+                    }
+                })
+                pinnedList.addView(row, LinearLayout.LayoutParams(-1, -2).apply {
+                    topMargin = dp(5)
+                })
+            }
+        }
+        pinnedScroll.addView(pinnedList)
+        panel.addView(pinnedScroll, LinearLayout.LayoutParams(-1, dp(150)))
+        panel.addView(label("Tap a clip to paste it. Pin important text to keep it here.", 11f, Color.LTGRAY))
+
+        val popup = PopupWindow(panel, resources.displayMetrics.widthPixels - dp(28),
+            dp(430), true).apply {
+            isOutsideTouchable = true
+            setBackgroundDrawable(GradientDrawable().apply { setColor(Color.TRANSPARENT) })
+            elevation = dp(18).toFloat()
+        }
+        popupRef = popup
+        keyboardRoot?.let { popup.showAtLocation(it, Gravity.CENTER, 0, 0) }
     }
+
+    private var popupRef: PopupWindow? = null
 
     private fun commitPendingSinglish(after: String) {
         if (keyboardMode == 1 && singlishBuffer.isNotEmpty()) {

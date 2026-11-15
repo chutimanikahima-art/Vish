@@ -2,9 +2,15 @@ package com.vish.keyboard
 
 import android.app.Activity
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.animation.ObjectAnimator
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.BitmapFactory
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -14,6 +20,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.ImageView
+import android.widget.ProgressBar
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -24,6 +31,7 @@ class MainActivity : Activity() {
 
     private val prefs by lazy { getSharedPreferences("vish_settings", Context.MODE_PRIVATE) }
     private var currentPage = "home"
+    private var splashShowing = true
 
     private data class Palette(
         val background: Int,
@@ -62,7 +70,73 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         currentPage = savedInstanceState?.getString("page") ?: "home"
-        render()
+        showSplash()
+    }
+
+    private fun showSplash() {
+        applyImmersiveMode()
+        val bg = Color.rgb(17, 14, 29)
+        val splash = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(28), dp(24), dp(28), dp(24))
+            setBackground(GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(236, 93, 183), Color.rgb(132, 82, 245), Color.rgb(75, 139, 245))
+            ))
+        }
+        val mark = TextView(this).apply {
+            text = "⌨"
+            textSize = 54f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+        }
+        val name = TextView(this).apply {
+            text = "HIMA Board"
+            textSize = 30f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+        }
+        val tagline = TextView(this).apply {
+            text = "Type cute. Type fast. Type YOU."
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            alpha = 0.88f
+        }
+        val progress = ProgressBar(this).apply {
+            isIndeterminate = true
+            indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+        }
+        splash.addView(mark, LinearLayout.LayoutParams(-1, dp(76)))
+        splash.addView(name)
+        splash.addView(tagline, LinearLayout.LayoutParams(-1, dp(34)))
+        splash.addView(progress, LinearLayout.LayoutParams(dp(42), dp(42)).apply {
+            topMargin = dp(30)
+        })
+        setContentView(splash)
+        mark.alpha = 0f
+        mark.scaleX = .65f
+        mark.scaleY = .65f
+        mark.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(650).start()
+        name.alpha = 0f
+        name.animate().alpha(1f).setStartDelay(180).setDuration(650).start()
+        Handler(Looper.getMainLooper()).postDelayed({
+            splashShowing = false
+            render()
+        }, 1250)
+    }
+
+    private fun applyImmersiveMode() {
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility =
+            (View.SYSTEM_UI_FLAG_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -72,7 +146,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        render()
+        if (!splashShowing) render()
     }
 
     private fun dp(value: Int): Int =
@@ -81,43 +155,109 @@ class MainActivity : Activity() {
     private fun applySystemBars(p: Palette) {
         window.statusBarColor = p.background
         window.navigationBarColor = p.background
-        @Suppress("DEPRECATION")
-        window.decorView.systemUiVisibility =
-            if (prefs.getString("theme", "dark") == "light") {
-                View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-            } else {
-                0
-            }
+        applyImmersiveMode()
     }
 
     private fun render() {
         val p = palette()
         applySystemBars(p)
+        val setupComplete = isVishEnabled() && isVishSelected()
 
         val page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(p.background)
+            prefs.getString("appBackground", null)?.let { raw ->
+                try {
+                    contentResolver.openInputStream(Uri.parse(raw))?.use { stream ->
+                        BitmapFactory.decodeStream(stream)?.let { background = BitmapDrawable(resources, it) }
+                    }
+                } catch (_: Exception) { }
+            }
         }
-
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
         }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(22), dp(20), dp(20))
+            setPadding(dp(20), dp(24), dp(20), dp(24))
         }
 
-        if (currentPage == "settings") {
+        if (!setupComplete) {
+            currentPage = "setup"
+            buildSetup(content, p)
+        } else if (currentPage == "settings") {
             buildSettings(content, p)
         } else {
+            currentPage = "home"
             buildHome(content, p)
         }
 
         scroll.addView(content)
         page.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        page.addView(buildBottomNav(p))
+        if (setupComplete) page.addView(buildBottomNav(p))
         setContentView(page)
+    }
+
+    private fun buildSetup(parent: LinearLayout, p: Palette) {
+        val enabled = isVishEnabled()
+        val selected = isVishSelected()
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(24), dp(20), dp(22))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.rgb(239, 91, 184), Color.rgb(143, 84, 245), Color.rgb(76, 143, 247))
+            ).apply { cornerRadius = dp(26).toFloat() }
+        }
+        hero.addView(text("⌨  Hima Board ♡", 27f, Color.WHITE, true))
+        hero.addView(text("Type cute. Type fast. Type YOU.", 14f, Color.WHITE).apply {
+            setPadding(0, dp(7), 0, dp(17))
+        })
+        hero.addView(text("A beautiful keyboard made for your style.", 13f, Color.WHITE))
+        parent.addView(hero)
+        parent.addView(space(20))
+
+        val statusCard = card(p, p.surface)
+        statusCard.addView(text("GET STARTED", 13f, p.accent, true))
+        statusCard.addView(space(8))
+        val status = TextView(this).apply {
+            text = if (enabled && selected) "●  All set! Hima Board is ready." else
+                if (enabled) "●  Enabled — select Hima Board to continue" else "●  Hima Board is not enabled yet"
+            textSize = 15f
+            setTextColor(p.text)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        statusCard.addView(status)
+        status.alpha = .65f
+        ObjectAnimator.ofFloat(status, View.ALPHA, .55f, 1f).apply {
+            duration = 850
+            repeatCount = ObjectAnimator.INFINITE
+            repeatMode = ObjectAnimator.REVERSE
+            start()
+        }
+        parent.addView(statusCard)
+
+        parent.addView(section("Keyboard activation", p))
+        parent.addView(infoRow(p, "1. Enable Hima Board", if (enabled) "Completed" else "Allow Hima Board in Android keyboard settings", if (enabled) "✓" else "1"))
+        parent.addView(actionButton(if (enabled) "Enabled ✓" else "1   Enable Hima Board", p) {
+            startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+        })
+        parent.addView(space(6))
+        parent.addView(infoRow(p, "2. Select Hima Board", if (selected) "Completed" else "Choose Hima Board from the keyboard picker", if (selected) "✓" else "2"))
+        parent.addView(actionButton(if (selected) "Selected ✓" else "2   Select Hima Board", p) {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            imm.showInputMethodPicker()
+        })
+        parent.addView(space(14))
+        parent.addView(text(
+            "Complete both steps to unlock the app settings and keyboard customization.",
+            13f, p.muted
+        ))
+        parent.addView(space(20))
+        parent.addView(text("Hima Board  •  by Vishath Kaushika", 12f, p.muted).apply {
+            gravity = Gravity.CENTER
+        })
     }
 
     private fun buildHome(parent: LinearLayout, p: Palette) {
@@ -126,7 +266,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         header.addView(ImageView(this).apply {
-            setImageResource(R.drawable.vish_logo)
+            setImageResource(R.drawable.hima_logo)
             scaleType = ImageView.ScaleType.FIT_CENTER
         }, LinearLayout.LayoutParams(dp(58), dp(58)))
 
@@ -134,7 +274,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), 0, 0, 0)
         }
-        heading.addView(text("VISH Keyboard", 22f, p.text, true))
+        heading.addView(text("Hima Board", 22f, p.text, true))
         heading.addView(text("Sinhala + English", 13f, p.muted))
         header.addView(heading, LinearLayout.LayoutParams(0, -2, 1f))
         parent.addView(header)
@@ -142,10 +282,14 @@ class MainActivity : Activity() {
         parent.addView(space(20))
         val hero = card(p, p.surface).apply {
             orientation = LinearLayout.VERTICAL
-            addView(text("Your keyboard. Your style.", 21f, p.text, true))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(236, 91, 182), Color.rgb(143, 83, 244), Color.rgb(76, 139, 246))
+            ).apply { cornerRadius = dp(24).toFloat() }
+            addView(text("Your keyboard. Your style.", 21f, Color.WHITE, true))
             addView(text(
-                "Personalize your typing experience with VISH.",
-                14f, p.muted
+                "Personalize your typing experience with Hima Board.",
+                14f, Color.WHITE
             ).apply { setPadding(0, dp(7), 0, dp(14)) })
             addView(keyboardPreview(p))
         }
@@ -156,12 +300,12 @@ class MainActivity : Activity() {
         val selected = isVishSelected()
         parent.addView(infoRow(
             p,
-            "1. Enable VISH Keyboard",
-            if (enabled) "Enabled in Android settings" else "Allow VISH in keyboard settings",
+            "1. Enable Hima Board",
+            if (enabled) "Enabled in Android settings" else "Allow Hima Board in keyboard settings",
             if (enabled) "✓" else "1"
         ))
         parent.addView(actionButton(
-            if (enabled) "Manage enabled keyboards" else "Enable VISH Keyboard",
+            if (enabled) "Manage enabled keyboards" else "Enable Hima Board",
             p
         ) {
             startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
@@ -170,11 +314,11 @@ class MainActivity : Activity() {
         parent.addView(space(7))
         parent.addView(infoRow(
             p,
-            "2. Select VISH Keyboard",
-            if (selected) "VISH is currently selected" else "Choose VISH when you are ready to type",
+            "2. Select Hima Board",
+            if (selected) "Hima Board is currently selected" else "Choose Hima Board when you are ready to type",
             if (selected) "✓" else "2"
         ))
-        parent.addView(actionButton("Select VISH Keyboard", p) {
+        parent.addView(actionButton("Select Hima Board", p) {
             val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
             imm.showInputMethodPicker()
         })
@@ -225,15 +369,24 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(0, dp(76), 1f).apply { leftMargin = dp(6) })
         parent.addView(themes)
         parent.addView(text(
-            "The selected theme is shared by the VISH app and keyboard.",
+            "The selected theme is shared by the Hima Board app and keyboard.",
             12f, p.muted
         ).apply { setPadding(0, dp(5), 0, 0) })
 
+        parent.addView(section("App background", p))
+        parent.addView(text("Personalize the Hima Board app with your own photo.", 13f, p.muted))
+        parent.addView(actionButton("Choose app background image", p) { chooseAppBackground() })
+        parent.addView(actionButton("Reset app background", p) {
+            prefs.edit().remove("appBackground").apply()
+            toast("App background reset")
+            render()
+        })
+
         parent.addView(section("Keyboard setup", p))
-        parent.addView(actionButton("Enable VISH Keyboard", p) {
+        parent.addView(actionButton("Enable Hima Board", p) {
             startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
         })
-        parent.addView(actionButton("Select VISH Keyboard", p) {
+        parent.addView(actionButton("Select Hima Board", p) {
             val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
             imm.showInputMethodPicker()
         })
@@ -357,7 +510,7 @@ class MainActivity : Activity() {
         ))
 
         parent.addView(space(16))
-        parent.addView(text("VISH Keyboard  •  Version 2.4", 13f, p.muted).apply {
+        parent.addView(text("Hima Board  •  Version 2.5", 13f, p.muted).apply {
             gravity = Gravity.CENTER
         })
         parent.addView(text("Developed by Vishath Kaushika", 12f, p.muted).apply {
@@ -467,7 +620,7 @@ class MainActivity : Activity() {
             background = rounded(p.raised, p.border)
             setPadding(dp(7), dp(7), dp(7), dp(7))
         }
-        box.addView(text("VISH     ❤️   🙂   🔥   🥰   👍", 13f, p.text, true).apply {
+        box.addView(text("HIMA     ❤️   🙂   🔥   🥰   👍", 13f, p.text, true).apply {
             gravity = Gravity.CENTER
         })
         box.addView(space(5))
@@ -576,6 +729,15 @@ class MainActivity : Activity() {
     private fun toast(message: String) =
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
 
+    private fun chooseAppBackground() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "image/*"
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        }
+        startActivityForResult(intent, 502)
+    }
+
     private fun chooseImage() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -588,6 +750,16 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated by Android, retained for broad device compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 502 && resultCode == RESULT_OK) {
+            data?.data?.let { uri: Uri ->
+                try {
+                    contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } catch (_: Exception) {}
+                prefs.edit().putString("appBackground", uri.toString()).apply()
+                toast("App background saved")
+                render()
+            }
+        }
         if (requestCode == 501 && resultCode == RESULT_OK) {
             data?.data?.let { uri: Uri ->
                 try {

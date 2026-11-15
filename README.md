@@ -65,3 +65,29 @@ This update adds a Yumi-inspired customization experience while keeping VISH bra
 - Existing English, Singlish and Sinhala modes remain.
 
 Build with GitHub Actions using the existing workflow. The APK must be tested on-device; scientific keys insert expressions into the active text field and do not evaluate expressions inside the keyboard.
+
+
+## Hima Board 2.5
+
+- App and keyboard branding changed to Hima Board.
+- Animated full-screen splash screen.
+- Immersive full-screen app layout.
+- First-run activation gate: app settings remain locked until Hima Board is enabled and selected as the active keyboard.
+- Live animated activation status.
+- Keyboard clipboard popup with current copied text and persistent pinned clips (up to 20).
+- Tap a recent or pinned clip to paste it into the active text field.
+
+Clipboard note: Android only exposes the current clipboard item to the keyboard when the user opens the clipboard panel. This version stores clips that the user explicitly pins; it does not silently collect clipboard history.
+
+
+## First launch
+
+Hima Board opens with a short animated splash. The full-screen setup screen asks the user to enable the keyboard and then select it. App settings and customization pages remain locked until both steps are complete.
+
+## App background
+
+The Settings page now includes a separate app background image picker and reset control. Keyboard photo background remains a separate option.
+
+## Build status
+
+Source package only. A successful Gradle build and on-device test have not yet been confirmed for this version.

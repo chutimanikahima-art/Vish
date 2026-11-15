@@ -1,18 +1,24 @@
-VISH Keyboard v1.2 layout patch
+HIMA Board v2.5
 
-1. Extract this ZIP.
-2. Copy the app folder into your existing VISH-Keyboard project folder and choose overwrite.
-3. In app/build.gradle.kts change versionCode to 3 and versionName to "1.2".
-4. In MainActivity.kt change the height setting default to 370 and range to 300–430:
-   prefs.getInt("height", 370)
-   max = 130; progress = (height - 300).coerceIn(0, 130)
-   save value + 300
-5. Commit and push:
-   git add .
-   git commit -m "VISH v1.2 larger keys and emoji row"
-   git push
+This is the complete Android Studio / GitHub Actions project.
 
-This patch adds a compact VISH toolbar, emoji strip, number row, larger 49dp letter keys, staggered QWERTY rows and a wider bottom space key. Select VISH again after installing the new APK.
+Features in this update:
+- Hima Board app branding and app icon.
+- Animated full-screen splash.
+- Full-screen setup gate: enable and select Hima Board before opening settings.
+- Live animated activation status.
+- Custom app background image and keyboard photo background.
+- Clipboard popup in the keyboard with persistent pinned clips.
+- Existing keyboard themes, sizing, Singlish and Sinhala/English modes.
 
+Build:
+1. Upload/replace the project files in your GitHub repository.
+2. Open GitHub Actions and run the Android build workflow.
+3. Download the VISH/Hima Board debug APK artifact.
+4. Install the APK, then Enable and Select Hima Board in the first-run screen.
 
-VISH Keyboard v2.3 UI update: larger default key sizing (56dp), 420dp default keyboard height, rounded keys, and accent-color ripple feedback on key taps.
+Important:
+- Keep your existing .git folder when replacing project files.
+- Do not delete the GitHub Actions workflow in your repository.
+- Clipboard pins are stored only when you explicitly tap Pin latest. Android does not let apps silently read the full clipboard history.
+- Build and test on a real Android device before daily use.
