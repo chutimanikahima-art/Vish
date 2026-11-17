@@ -104,10 +104,11 @@ class VishKeyboardService : InputMethodService() {
         // container = background layer (photo / animated / solid), root = keys on top
         val container = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(-1, dp(height))
+            minimumHeight = dp(height)
         }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
+            gravity = Gravity.TOP
             setPadding(dp(4), dp(4), dp(4), dp(4))
             layoutParams = FrameLayout.LayoutParams(-1, -1)
         }
@@ -117,7 +118,10 @@ class VishKeyboardService : InputMethodService() {
         val baseColor = prefs.getInt("color", c.background)
         val photo = prefs.getString("image", null)?.let { loadBackground(it, 1080) }
         when {
-            photo != null -> container.background = BitmapDrawable(resources, photo)
+            photo != null -> container.background = BitmapDrawable(resources, photo).apply {
+                // fill the keyboard area, keep aspect ratio, crop the overflow from the centre
+                gravity = Gravity.CENTER_CROP
+            }
             prefs.getBoolean("animBg", true) -> {
                 val view = AnimatedBgView(this, baseColor, mix(baseColor, c.accent, 0.35f))
                 animBgView = view
@@ -558,6 +562,8 @@ class VishKeyboardService : InputMethodService() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    override fun onEvaluateFullscreenMode(): Boolean = false
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
