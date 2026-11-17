@@ -118,10 +118,10 @@ class VishKeyboardService : InputMethodService() {
         val baseColor = prefs.getInt("color", c.background)
         val photo = prefs.getString("image", null)?.let { loadBackground(it, 1080) }
         when {
-            photo != null -> container.background = BitmapDrawable(resources, photo).apply {
-                // fill the keyboard area, keep aspect ratio, crop the overflow from the centre
-                gravity = Gravity.CENTER_CROP
-            }
+            photo != null -> container.background = BitmapDrawable(
+                resources,
+                centerCropToFit(photo, resources.displayMetrics.widthPixels, dp(height))
+            )
             prefs.getBoolean("animBg", true) -> {
                 val view = AnimatedBgView(this, baseColor, mix(baseColor, c.accent, 0.35f))
                 animBgView = view
@@ -592,6 +592,18 @@ class VishKeyboardService : InputMethodService() {
             val bmp = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
             bmp?.also { bgCache = raw to it }
         } catch (_: Exception) { null }
+    }
+
+    // Scale the photo so it fully covers w x h (keeping aspect ratio), then cut the overflow from the centre.
+    private fun centerCropToFit(src: android.graphics.Bitmap, w: Int, h: Int): android.graphics.Bitmap {
+        if (w <= 0 || h <= 0 || src.width <= 0 || src.height <= 0) return src
+        val scale = maxOf(w.toFloat() / src.width, h.toFloat() / src.height)
+        val sw = maxOf(w, Math.round(src.width * scale))
+        val sh = maxOf(h, Math.round(src.height * scale))
+        val scaled = android.graphics.Bitmap.createScaledBitmap(src, sw, sh, true)
+        val x = (sw - w) / 2
+        val y = (sh - h) / 2
+        return android.graphics.Bitmap.createBitmap(scaled, x, y, w, h)
     }
 
     private fun mix(a: Int, b: Int, t: Float): Int {
