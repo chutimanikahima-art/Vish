@@ -1,6 +1,17 @@
 package com.vish.keyboard
 
 import android.inputmethodservice.InputMethodService
+import android.animation.ValueAnimator
+import android.graphics.Canvas
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Shader
+import android.os.Handler
+import android.os.Looper
+import android.view.animation.LinearInterpolator
+import android.widget.FrameLayout
+import kotlin.math.PI
+import kotlin.math.sin
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
@@ -35,12 +46,26 @@ class VishKeyboardService : InputMethodService() {
 
     private val prefs by lazy { getSharedPreferences("vish_settings", Context.MODE_PRIVATE) }
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var greetingView: TextView? = null
+    private var bgCache: Pair<String, android.graphics.Bitmap>? = null
+    private var animBgView: AnimatedBgView? = null
+
+    // Settings sliders fire many times while dragging; rebuild once after they settle.
+    private val rebuildRunnable = Runnable {
+        if (keyboardRoot != null && currentInputConnection != null) setInputView(buildKeyboard())
+    }
+    private val hideGreetingRunnable = Runnable {
+        greetingView?.animate()?.alpha(0f)?.setDuration(400)?.withEndAction {
+            greetingView?.visibility = View.GONE
+        }?.start()
+    }
+
     private val preferenceListener =
         android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key in setOf("theme", "height", "keySize", "color", "image", "sound", "vibration", "touchEffect", "keyOpacity", "keyRoundness", "fontStyle")) {
-                if (keyboardRoot != null && currentInputConnection != null) {
-                    setInputView(buildKeyboard())
-                }
+            if (key in setOf("theme", "height", "keySize", "color", "image", "sound", "vibration", "touchEffect", "keyOpacity", "keyRoundness", "fontStyle", "animBg")) {
+                mainHandler.removeCallbacks(rebuildRunnable)
+                mainHandler.postDelayed(rebuildRunnable, 150)
             }
         }
 
@@ -65,6 +90,7 @@ class VishKeyboardService : InputMethodService() {
 
     override fun onDestroy() {
         prefs.unregisterOnSharedPreferenceChangeListener(preferenceListener)
+        mainHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
 
@@ -75,22 +101,49 @@ class VishKeyboardService : InputMethodService() {
         val height = prefs.getInt("height", 410).coerceIn(340, 460)
         val keyHeight = prefs.getInt("keySize", 56).coerceIn(48, 64)
 
+        // container = background layer (photo / animated / solid), root = keys on top
+        val container = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(-1, dp(height))
+        }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setPadding(dp(4), dp(4), dp(4), dp(4))
-            layoutParams = LinearLayout.LayoutParams(-1, dp(height))
-            setBackgroundColor(prefs.getInt("color", c.background))
+            layoutParams = FrameLayout.LayoutParams(-1, -1)
         }
         keyboardRoot = root
+        animBgView = null
 
-        prefs.getString("image", null)?.let { raw ->
-            try {
-                contentResolver.openInputStream(Uri.parse(raw))?.use { stream ->
-                    BitmapFactory.decodeStream(stream)?.let { root.background = BitmapDrawable(resources, it) }
-                }
-            } catch (_: Exception) { }
+        val baseColor = prefs.getInt("color", c.background)
+        val photo = prefs.getString("image", null)?.let { loadBackground(it, 1080) }
+        when {
+            photo != null -> container.background = BitmapDrawable(resources, photo)
+            prefs.getBoolean("animBg", true) -> {
+                val view = AnimatedBgView(this, baseColor, mix(baseColor, c.accent, 0.35f))
+                animBgView = view
+                container.addView(view, FrameLayout.LayoutParams(-1, -1))
+            }
+            else -> container.setBackgroundColor(baseColor)
         }
+        container.addView(root)
+
+        greetingView = TextView(this).apply {
+            text = GREETING
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setPadding(dp(14), dp(6), dp(14), dp(6))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(16).toFloat()
+                setColor(c.accent)
+            }
+            isClickable = false
+            elevation = dp(4).toFloat()
+        }
+        container.addView(greetingView, FrameLayout.LayoutParams(
+            -2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(10) })
 
         val toolbar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -244,7 +297,7 @@ class VishKeyboardService : InputMethodService() {
                 android.view.KeyEvent.KEYCODE_ENTER))
         })
         root.addView(bottom)
-        return root
+        return container
     }
 
     private fun showClipboardPopup() {
@@ -506,9 +559,95 @@ class VishKeyboardService : InputMethodService() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
+    override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        super.onStartInputView(info, restarting)
+        showGreeting()
+    }
+
+    private fun showGreeting() {
+        val v = greetingView ?: return
+        mainHandler.removeCallbacks(hideGreetingRunnable)
+        v.animate().cancel()
+        v.visibility = View.VISIBLE
+        v.alpha = 1f
+        mainHandler.postDelayed(hideGreetingRunnable, 2500)
+    }
+
+    // Decode the photo once at reduced size instead of full camera resolution on every rebuild.
+    private fun loadBackground(raw: String, maxPx: Int): android.graphics.Bitmap? {
+        bgCache?.takeIf { it.first == raw }?.let { return it.second }
+        return try {
+            val uri = Uri.parse(raw)
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            var sample = 1
+            while (bounds.outWidth / sample > maxPx * 2 || bounds.outHeight / sample > maxPx * 2) sample *= 2
+            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+            val bmp = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+            bmp?.also { bgCache = raw to it }
+        } catch (_: Exception) { null }
+    }
+
+    private fun mix(a: Int, b: Int, t: Float): Int {
+        val r = Color.red(a) + (Color.red(b) - Color.red(a)) * t
+        val g = Color.green(a) + (Color.green(b) - Color.green(a)) * t
+        val bl = Color.blue(a) + (Color.blue(b) - Color.blue(a)) * t
+        return Color.rgb(r.toInt(), g.toInt(), bl.toInt())
+    }
+
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
         shifted = attribute?.inputType?.and(0x0000000f) == 2
         singlishBuffer.clear()
+    }
+}
+
+private const val GREETING = "Hima for you ♡"
+
+// Slow gradient wave behind the keys. Only runs while the keyboard window is visible.
+private class AnimatedBgView(ctx: Context, private val c1: Int, private val c2: Int) : View(ctx) {
+    private val paint = Paint()
+    private var phase = 0f
+    private val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+        duration = 8000L
+        repeatCount = ValueAnimator.INFINITE
+        interpolator = LinearInterpolator()
+        addUpdateListener {
+            phase = it.animatedFraction
+            invalidate()
+        }
+    }
+
+    private fun startAnim() { if (!animator.isRunning) animator.start() }
+    private fun stopAnim() { animator.cancel() }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        startAnim()
+    }
+
+    override fun onDetachedFromWindow() {
+        stopAnim()
+        super.onDetachedFromWindow()
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        if (visibility == VISIBLE) startAnim() else stopAnim()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0f || h <= 0f) return
+        val wave = sin(phase * 2 * PI).toFloat() * 0.5f + 0.5f
+        val mid = 0.3f + 0.4f * wave
+        paint.shader = LinearGradient(
+            0f, 0f, w, h,
+            intArrayOf(c1, c2, c1),
+            floatArrayOf(0f, mid, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(0f, 0f, w, h, paint)
     }
 }
