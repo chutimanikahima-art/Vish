@@ -1140,6 +1140,7 @@ class VishKeyboardService : InputMethodService() {
                 else -> perimeter * (.75f + (rect.bottom - py) / rect.height().coerceAtLeast(1f) * .25f)
             }
 
+            val routeProgress = progress.coerceAtMost(1f)
             val shader = android.graphics.SweepGradient(
                 rect.centerX(), rect.centerY(), rainbow, null
             )
@@ -1151,7 +1152,6 @@ class VishKeyboardService : InputMethodService() {
             paint.strokeWidth = 7f
             paint.alpha = alphaValue
 
-            val routeProgress = progress.coerceAtMost(1f)
             val travelled = perimeter * routeProgress
             segment.reset()
             val end = startDistance + travelled
