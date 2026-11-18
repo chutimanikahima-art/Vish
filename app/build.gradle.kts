@@ -9,8 +9,8 @@ android {
         applicationId = "com.vish.keyboard"
         minSdk = 23
         targetSdk = 35
-        versionCode = 10
-        versionName = "3.1"
+        versionCode = 13
+        versionName = "3.3"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

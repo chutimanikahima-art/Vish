@@ -38,6 +38,13 @@ class VishKeyboardService : InputMethodService() {
     private var calculatorAnswer = ""
     private var keyboardRoot: View? = null
     private val singlishBuffer = StringBuilder()
+    private val repeatHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val repeatDeleteRunnable = object : Runnable {
+        override fun run() {
+            deleteOneCharacter()
+            repeatHandler.postDelayed(this, 65L)
+        }
+    }
 
     private val prefs by lazy { getSharedPreferences("vish_settings", Context.MODE_PRIVATE) }
 
@@ -136,6 +143,9 @@ class VishKeyboardService : InputMethodService() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(5), 0, 0, 0)
         })
+        brand.isClickable = true
+        brand.isFocusable = true
+        brand.setOnClickListener { showLoveAnimation() }
         toolbar.addView(brand, LinearLayout.LayoutParams(0, dp(34), 1f))
         toolbar.addView(makeKey(if (calculatorMode) "ABC" else "SCI", .9f,
             if (calculatorMode) c.accent else c.specialKey, 34, 13f, c) {
@@ -339,13 +349,21 @@ class VishKeyboardService : InputMethodService() {
             }
 
             if (!calculatorMode && !symbolMode && keyboardMode != 2 && index == 2) {
-                line.addView(makeKey("⌫", 1.25f, c.specialKey, keyHeight, 20f, c) {
-                    if (keyboardMode == 1 && singlishBuffer.isNotEmpty()) {
-                        singlishBuffer.deleteCharAt(singlishBuffer.length - 1)
-                        if (singlishBuffer.isEmpty()) currentInputConnection?.setComposingText("", 1)
-                        else currentInputConnection?.setComposingText(transliterate(singlishBuffer.toString()), 1)
-                    } else currentInputConnection?.deleteSurroundingText(1, 0)
-                })
+                val backspaceKey = makeKey("⌫", 1.25f, c.specialKey, keyHeight, 20f, c) {
+                    deleteOneCharacter()
+                }
+                backspaceKey.setOnLongClickListener {
+                    repeatHandler.removeCallbacks(repeatDeleteRunnable)
+                    repeatHandler.postDelayed(repeatDeleteRunnable, 350L)
+                    true
+                }
+                backspaceKey.setOnTouchListener { _, event ->
+                    if (event.action == android.view.MotionEvent.ACTION_UP || event.action == android.view.MotionEvent.ACTION_CANCEL) {
+                        repeatHandler.removeCallbacks(repeatDeleteRunnable)
+                    }
+                    false
+                }
+                line.addView(backspaceKey)
             }
             root.addView(line)
         }
@@ -371,12 +389,9 @@ class VishKeyboardService : InputMethodService() {
             shifted = false
             setInputView(buildKeyboard())
         })
-        bottom.addView(makeKey(if (calculatorMode) "Scientific" else if (keyboardMode == 1) "Singlish" else "HIMA ♡", 2.8f,
+        bottom.addView(makeKey(if (calculatorMode) "Scientific" else if (keyboardMode == 1) "Singlish" else "English", 2.8f,
             c.key, bottomHeight, 13f, c) {
-                if (!calculatorMode) {
-                    if (style == "cute") commitPendingSinglish("Love you ❤️")
-                    else commitPendingSinglish(" ")
-                }
+                if (!calculatorMode) commitPendingSinglish(" ")
             })
         bottom.addView(makeKey(",", .65f, c.specialKey, bottomHeight, 18f, c) {
             commitPendingSinglish(",")
@@ -501,6 +516,46 @@ class VishKeyboardService : InputMethodService() {
         keyboardRoot?.let { popup.showAtLocation(it, Gravity.CENTER, 0, 0) }
     }
 
+
+    private fun deleteOneCharacter() {
+        if (keyboardMode == 1 && singlishBuffer.isNotEmpty()) {
+            singlishBuffer.deleteCharAt(singlishBuffer.length - 1)
+            if (singlishBuffer.isEmpty()) currentInputConnection?.setComposingText("", 1)
+            else currentInputConnection?.setComposingText(transliterate(singlishBuffer.toString()), 1)
+        } else {
+            currentInputConnection?.deleteSurroundingText(1, 0)
+        }
+    }
+
+    private fun showLoveAnimation() {
+        val message = TextView(this).apply {
+            text = "Love you ❤️"
+            textSize = 25f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(dp(24), dp(16), dp(24), dp(16))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.rgb(238, 91, 174), Color.rgb(132, 83, 244))
+            ).apply { cornerRadius = dp(28).toFloat() }
+            elevation = dp(16).toFloat()
+            alpha = 0f
+            scaleX = .55f
+            scaleY = .55f
+        }
+        val popup = PopupWindow(message, dp(230), dp(82), false).apply {
+            isOutsideTouchable = false
+            isTouchable = false
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        }
+        val anchor = keyboardRoot ?: return
+        popup.showAtLocation(anchor, Gravity.CENTER, 0, -dp(28))
+        message.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(280).withEndAction {
+            message.animate().alpha(0f).scaleX(1.12f).scaleY(1.12f)
+                .setStartDelay(1050).setDuration(380).withEndAction { popup.dismiss() }.start()
+        }.start()
+    }
 
     private fun showEmojiPopup() {
         val all = listOf(
