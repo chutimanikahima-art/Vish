@@ -486,6 +486,9 @@ class MainActivity : Activity() {
             keyColorGrid.addView(colorRow)
         }
         parent.addView(keyColorGrid)
+        parent.addView(actionButton("🎨 Full RGB key color selector", p) {
+            showRgbColorPicker("Choose key color", prefs.getInt("customKeyColor", Color.rgb(255, 247, 252)), "customKeyColor")
+        })
         parent.addView(actionButton("Reset key color", p) {
             prefs.edit().remove("customKeyColor").apply()
             toast("Default key colors restored")
@@ -562,6 +565,9 @@ class MainActivity : Activity() {
             })
         }
         parent.addView(swatches)
+        parent.addView(actionButton("🌈 Full RGB background color selector", p) {
+            showRgbColorPicker("Choose keyboard background", prefs.getInt("color", if (prefs.getString("theme", "dark") == "light") Color.rgb(231, 237, 246) else Color.rgb(12, 20, 27)), "color", "image")
+        })
         parent.addView(actionButton("Choose background image", p) { chooseImage() })
         parent.addView(actionButton("Remove background image", p) {
             prefs.edit().remove("image").remove("color").apply()
@@ -880,6 +886,65 @@ class MainActivity : Activity() {
             background = rounded(p.raised, p.border)
             setOnClickListener { action() }
         }
+
+    private fun showRgbColorPicker(title: String, initialColor: Int, preferenceKey: String, removePreference: String? = null) {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(12), dp(22), dp(4))
+        }
+        var red = Color.red(initialColor)
+        var green = Color.green(initialColor)
+        var blue = Color.blue(initialColor)
+        val preview = TextView(this).apply {
+            text = "RGB  $red, $green, $blue   •   #%02X%02X%02X".format(red, green, blue)
+            gravity = Gravity.CENTER
+            textSize = 14f
+            setTextColor(if ((red * 299 + green * 587 + blue * 114) / 1000 < 135) Color.WHITE else Color.BLACK)
+            background = rounded(initialColor, Color.GRAY)
+            setPadding(dp(12), dp(18), dp(12), dp(18))
+        }
+        panel.addView(preview, LinearLayout.LayoutParams(-1, dp(66)).apply { bottomMargin = dp(10) })
+
+        fun updatePreview() {
+            val selected = Color.rgb(red, green, blue)
+            preview.text = "RGB  $red, $green, $blue   •   #%02X%02X%02X".format(red, green, blue)
+            preview.setTextColor(if ((red * 299 + green * 587 + blue * 114) / 1000 < 135) Color.WHITE else Color.BLACK)
+            preview.background = rounded(selected, Color.GRAY)
+        }
+        fun addChannel(label: String, value: Int, onValue: (Int) -> Unit) {
+            panel.addView(text(label, 13f, Color.DKGRAY, true))
+            val seek = SeekBar(this).apply {
+                max = 255
+                progress = value
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        onValue(progress)
+                        updatePreview()
+                    }
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+                })
+            }
+            panel.addView(seek, LinearLayout.LayoutParams(-1, dp(42)))
+        }
+        addChannel("Red", red) { red = it }
+        addChannel("Green", green) { green = it }
+        addChannel("Blue", blue) { blue = it }
+
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(panel)
+            .setPositiveButton("Apply color") { _, _ ->
+                val editor = prefs.edit().putInt(preferenceKey, Color.rgb(red, green, blue))
+                if (removePreference != null) editor.remove(removePreference)
+                editor.apply()
+                toast("Color saved")
+                currentPage = "settings"
+                render()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
 
     private fun rounded(fill: Int, stroke: Int): GradientDrawable =
         GradientDrawable().apply {

@@ -1079,7 +1079,11 @@ class VishKeyboardService : InputMethodService() {
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
         }
-        private val wavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+        private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
         private val path = Path()
         private val segment = Path()
         private val rect = RectF()
@@ -1149,8 +1153,11 @@ class VishKeyboardService : InputMethodService() {
             }
             shader.setLocalMatrix(matrix)
             paint.shader = shader
-            paint.strokeWidth = 7f
+            paint.strokeWidth = 6f
             paint.alpha = alphaValue
+            glowPaint.shader = shader
+            glowPaint.strokeWidth = 17f
+            glowPaint.alpha = (alphaValue * .30f).toInt().coerceIn(0, 255)
 
             val travelled = perimeter * routeProgress
             segment.reset()
@@ -1161,20 +1168,11 @@ class VishKeyboardService : InputMethodService() {
                 measure.getSegment(startDistance, perimeter, segment, true)
                 measure.getSegment(0f, end - perimeter, segment, true)
             }
+            // Draw only on the keyboard's outer rounded border: soft glow + sharp RGB trail.
+            canvas.drawPath(segment, glowPaint)
             canvas.drawPath(segment, paint)
-
-            // Expanding translucent rings create the water-touch appearance.
-            val maxRadius = kotlin.math.max(b.width(), b.height()) * .78f
-            val radius = maxRadius * routeProgress
-            wavePaint.shader = null
-            wavePaint.strokeWidth = 3f
-            val colors = intArrayOf(Color.CYAN, Color.MAGENTA, Color.YELLOW)
-            for (i in colors.indices) {
-                wavePaint.color = colors[i]
-                wavePaint.alpha = (alphaValue * (1f - routeProgress * .55f)).toInt().coerceIn(0, 255)
-                canvas.drawCircle(touchX, touchY, radius + i * 9f, wavePaint)
-            }
             paint.shader = null
+            glowPaint.shader = null
         }
 
         override fun setAlpha(alpha: Int) { alphaValue = alpha; invalidateSelf() }
