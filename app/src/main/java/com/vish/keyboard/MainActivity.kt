@@ -152,7 +152,18 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (!splashShowing) render()
+        if (!splashShowing) {
+            if (prefs.getBoolean("open_settings_after_enable", false) && isVishEnabled()) {
+                prefs.edit().remove("open_settings_after_enable").apply()
+                currentPage = "settings"
+            }
+            render()
+        }
+    }
+
+    private fun openKeyboardEnableSettings() {
+        prefs.edit().putBoolean("open_settings_after_enable", true).apply()
+        startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
     }
 
     private fun dp(value: Int): Int =
@@ -167,7 +178,7 @@ class MainActivity : Activity() {
     private fun render() {
         val p = palette()
         applySystemBars(p)
-        val setupComplete = isVishEnabled() && isVishSelected()
+        val setupComplete = isVishEnabled()
 
         val page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -247,7 +258,7 @@ class MainActivity : Activity() {
         parent.addView(section("Keyboard activation", p))
         parent.addView(infoRow(p, "1. Enable Hima Board", if (enabled) "Completed" else "Allow Hima Board in Android keyboard settings", if (enabled) "✓" else "1"))
         parent.addView(actionButton(if (enabled) "Enabled ✓" else "1   Enable Hima Board", p) {
-            startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+            openKeyboardEnableSettings()
         })
         parent.addView(space(6))
         parent.addView(infoRow(p, "2. Select Hima Board", if (selected) "Completed" else "Choose Hima Board from the keyboard picker", if (selected) "✓" else "2"))
@@ -257,7 +268,7 @@ class MainActivity : Activity() {
         })
         parent.addView(space(14))
         parent.addView(text(
-            "Complete both steps to unlock the app settings and keyboard customization.",
+            "Enable Hima Board to unlock Settings automatically. You can select it separately when you are ready to type.",
             13f, p.muted
         ))
         parent.addView(space(20))
@@ -320,7 +331,7 @@ class MainActivity : Activity() {
             if (enabled) "Manage enabled keyboards" else "Enable Hima Board",
             p
         ) {
-            startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+            openKeyboardEnableSettings()
         })
 
         parent.addView(space(7))
@@ -414,7 +425,7 @@ class MainActivity : Activity() {
 
         parent.addView(section("Keyboard setup", p))
         parent.addView(actionButton("Enable Hima Board", p) {
-            startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+            openKeyboardEnableSettings()
         })
         parent.addView(actionButton("Select Hima Board", p) {
             val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
@@ -555,7 +566,7 @@ class MainActivity : Activity() {
         parent.addView(actionButton("Restore from clipboard", p) { restoreSettingsBackup() })
 
         parent.addView(space(16))
-        parent.addView(text("Hima Board  •  Version 3.0", 13f, p.muted).apply {
+        parent.addView(text("Hima Board  •  Version 3.2", 13f, p.muted).apply {
             gravity = Gravity.CENTER
         })
         parent.addView(text("Developed by Vishath Kaushika", 12f, p.muted).apply {

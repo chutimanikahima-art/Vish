@@ -105,3 +105,20 @@ Source package only. A successful Gradle build and on-device test have not yet b
 - Existing photo backgrounds, theme options, key size, sound, vibration and ripple effects retained.
 
 Build: GitHub Actions workflow `Hima Board Android Build`. The source is prepared for build; install and test on the target phone before public release.
+
+
+## HIMA Board 3.1 update
+- Emoji library popup opened from the three-dot emoji bar item.
+- Pin up to 8 favorite emojis to the keyboard emoji strip.
+- Cute style has a dedicated heart key; the HIMA ♡ key inserts “Love you ❤️” in Cute mode.
+- Smoother press scale animation and existing ripple feedback.
+- Scientific calculator now evaluates expressions locally and shows answers in its display. Supports +, −, ×, ÷, %, powers, parentheses, π, e, sin, cos, tan (degrees), √, log and ln. `Ans` inserts the last answer into the current text field.
+- Calculator evaluates only locally entered expressions; it does not send them to the active app until `Ans` is tapped.
+- Added a dedicated ?123 symbols page with punctuation, brackets, currency and common symbols; tap ABC to return.
+
+
+## HIMA Board 3.2
+- Refreshed HIMA app/keyboard logo with a cute keyboard-and-heart mark.
+- Keyboard toolbar now displays the HIMA logo and HIMA Board branding.
+- Enabling HIMA Board in Android input settings automatically returns the app to its Settings panel.
+- App Settings unlock as soon as the keyboard is enabled; selecting HIMA Board remains a separate optional activation step.

@@ -31,8 +31,11 @@ class VishKeyboardService : InputMethodService() {
     private var keyboardMode = 0
     private var shifted = false
     private var calculatorMode = false
+    private var symbolMode = false
     private var ctrlArmed = false
     private var altArmed = false
+    private val calculatorExpression = StringBuilder()
+    private var calculatorAnswer = ""
     private var keyboardRoot: View? = null
     private val singlishBuffer = StringBuilder()
 
@@ -40,7 +43,7 @@ class VishKeyboardService : InputMethodService() {
 
     private val preferenceListener =
         android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key in setOf("theme", "height", "keySize", "color", "image", "sound", "vibration", "touchEffect", "keyOpacity", "keyRoundness", "fontStyle", "keyboardStyle", "emojiRow", "numberRow", "devNavRow")) {
+            if (key in setOf("theme", "height", "keySize", "color", "image", "sound", "vibration", "touchEffect", "keyOpacity", "keyRoundness", "fontStyle", "keyboardStyle", "emojiRow", "numberRow", "devNavRow", "favorite_emojis")) {
                 if (keyboardRoot != null && currentInputConnection != null) {
                     setInputView(buildKeyboard())
                 }
@@ -84,7 +87,7 @@ class VishKeyboardService : InputMethodService() {
         val c = keyboardPalette()
         val height = prefs.getInt("height", 410).coerceIn(340, 460)
         val styleForSize = prefs.getString("keyboardStyle", "normal")
-        val keyHeight = if (styleForSize == "developer") 43 else prefs.getInt("keySize", 56).coerceIn(48, 64)
+        val keyHeight = if (calculatorMode) 42 else if (styleForSize == "developer") 43 else prefs.getInt("keySize", 56).coerceIn(48, 64)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -109,24 +112,35 @@ class VishKeyboardService : InputMethodService() {
         }
         toolbar.addView(makeKey("▤", .8f, c.specialKey, 34, 18f, c) { showClipboardPopup() })
         toolbar.addView(makeKey("✦", .72f, c.specialKey, 34, 17f, c) { showSnippetsPopup() })
-        toolbar.addView(TextView(this).apply {
+        val brand = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        brand.addView(android.widget.ImageView(this).apply {
+            setImageResource(R.drawable.hima_logo)
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+        }, LinearLayout.LayoutParams(dp(25), dp(25)))
+        brand.addView(TextView(this).apply {
             text = when (keyboardMode) {
-                1 -> "SINGLISH  →  සිංහල"
+                1 -> "Singlish → සිංහල"
                 2 -> "සිංහල"
                 else -> when (prefs.getString("keyboardStyle", "normal")) {
-                    "cute" -> "H I M A  ♡"
-                    "developer" -> "HIMA  /  DEV"
-                    else -> "H I M A"
+                    "cute" -> "HIMA ♡"
+                    "developer" -> "HIMA / DEV"
+                    else -> "HIMA Board"
                 }
             }
-            textSize = 13f
+            textSize = 12f
             setTextColor(c.text)
             typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(0, dp(34), 1f))
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(5), 0, 0, 0)
+        })
+        toolbar.addView(brand, LinearLayout.LayoutParams(0, dp(34), 1f))
         toolbar.addView(makeKey(if (calculatorMode) "ABC" else "SCI", .9f,
             if (calculatorMode) c.accent else c.specialKey, 34, 13f, c) {
             calculatorMode = !calculatorMode
+            symbolMode = false
             shifted = false
             setInputView(buildKeyboard())
         })
@@ -135,17 +149,22 @@ class VishKeyboardService : InputMethodService() {
         val style = prefs.getString("keyboardStyle", "normal") ?: "normal"
         if (style != "developer" && prefs.getBoolean("emojiRow", true)) {
             val emojis = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            val emojiSet = if (style == "cute") listOf("♡", "🌸", "🩷", "🥰", "✨", "🎀", "😊", "💕", "🦋", "•••")
-                else listOf("❤️", "💕", "🙂", "💔", "😣", "😘", "😒", "😁", "🥺", "•••")
+            val savedEmojis = prefs.getString("favorite_emojis", "").orEmpty()
+                .split("|").filter { it.isNotBlank() }.take(7)
+            val defaultEmojis = if (style == "cute")
+                listOf("🩷", "🥰", "✨", "🎀", "😊", "💕", "🦋")
+            else listOf("❤️", "💕", "🙂", "😂", "🥺", "😘", "🔥")
+            val emojiSet = (savedEmojis + defaultEmojis).distinct().take(8) + "•••"
             emojiSet.forEach { emoji ->
                 emojis.addView(makeKey(emoji, 1f, Color.TRANSPARENT, 34, 17f, c) {
-                    if (emoji != "•••") commitPendingSinglish(emoji)
+                    if (emoji == "•••") showEmojiPopup()
+                    else commitPendingSinglish(emoji)
                 })
             }
             root.addView(emojis)
         }
 
-        if (keyboardMode != 2 && prefs.getBoolean("numberRow", true) && style != "developer") {
+        if (!symbolMode && keyboardMode != 2 && prefs.getBoolean("numberRow", true) && style != "developer") {
             val numbers = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             "1234567890".forEach { n ->
                 numbers.addView(makeKey(n.toString(), 1f, c.key, 32, 13f, c) {
@@ -181,13 +200,39 @@ class VishKeyboardService : InputMethodService() {
             root.addView(code)
         }
 
+        if (calculatorMode) {
+            val calcDisplay = TextView(this).apply {
+                text = if (calculatorAnswer.isNotBlank())
+                    "${calculatorExpression}\\n= $calculatorAnswer"
+                else if (calculatorExpression.isNotBlank()) calculatorExpression.toString()
+                else "Scientific calculator  •  Enter an expression"
+                textSize = 17f
+                setTextColor(c.text)
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                setPadding(dp(12), dp(5), dp(12), dp(5))
+                maxLines = 2
+                background = GradientDrawable().apply {
+                    setColor(c.specialKey)
+                    cornerRadius = dp(13).toFloat()
+                }
+            }
+            root.addView(calcDisplay, LinearLayout.LayoutParams(-1, dp(48)).apply {
+                setMargins(dp(3), dp(3), dp(3), dp(5))
+            })
+        }
+
         val rows = if (calculatorMode) listOf(
-            listOf("sin", "cos", "tan", "π", "(", ")"),
-            listOf("√", "x²", "^", "log", "ln", "÷"),
-            listOf("7", "8", "9", "×", "⌫"),
-            listOf("4", "5", "6", "+", "−"),
-            listOf("1", "2", "3", "%", "="),
-            listOf("0", ".", "Ans", "AC")
+            listOf("sin", "cos", "tan", "π", "e", "("),
+            listOf("√", "x²", "^", "log", "ln", ")"),
+            listOf("7", "8", "9", "÷", "⌫"),
+            listOf("4", "5", "6", "×", "−"),
+            listOf("1", "2", "3", "%", "+"),
+            listOf("0", ".", "Ans", "AC", "=")
+        ) else if (symbolMode) listOf(
+            listOf("1","2","3","4","5","6","7","8","9","0"),
+            listOf("@","#","$","%","&","-","+","(",")","/"),
+            listOf("*","\"","' ",":",";","!","?","₹","₨","⌫"),
+            listOf("ABC","=","<",">","[","]","{","}","\\","~")
         ) else if (keyboardMode == 2) listOf(
             listOf("්","ා","ැ","ෑ","ි","ී","ු","ූ","ෙ","ේ"),
             listOf("අ","ආ","ඇ","ඉ","ඊ","උ","එ","ඔ","ක","ග"),
@@ -209,7 +254,7 @@ class VishKeyboardService : InputMethodService() {
             if (keyboardMode != 2 && index == 1) {
                 line.setPadding(dp(10), 0, dp(10), 0)
             }
-            if (!calculatorMode && keyboardMode != 2 && index == 2) {
+            if (!calculatorMode && !symbolMode && keyboardMode != 2 && index == 2) {
                 line.addView(makeKey("⇧", 1.25f, c.specialKey, keyHeight, 21f, c) {
                     shifted = !shifted
                     setInputView(buildKeyboard())
@@ -224,16 +269,46 @@ class VishKeyboardService : InputMethodService() {
                     keyHeight, if (character.length > 2) 13f else 19f, c) {
                     if (calculatorMode) {
                         when (character) {
-                            "⌫" -> currentInputConnection?.deleteSurroundingText(1, 0)
-                            "AC" -> currentInputConnection?.commitText("", 1)
-                            "Ans" -> currentInputConnection?.commitText("Ans", 1)
-                            "sin", "cos", "tan", "log", "ln" -> currentInputConnection?.commitText("$character(", 1)
-                            "√" -> currentInputConnection?.commitText("√(", 1)
-                            "×" -> currentInputConnection?.commitText("*", 1)
-                            "÷" -> currentInputConnection?.commitText("/", 1)
-                            "−" -> currentInputConnection?.commitText("-", 1)
-                            else -> currentInputConnection?.commitText(character, 1)
+                            "⌫" -> {
+                                if (calculatorExpression.isNotEmpty()) calculatorExpression.deleteCharAt(calculatorExpression.length - 1)
+                                calculatorAnswer = ""
+                                setInputView(buildKeyboard())
+                            }
+                            "AC" -> {
+                                calculatorExpression.clear()
+                                calculatorAnswer = ""
+                                setInputView(buildKeyboard())
+                            }
+                            "Ans" -> {
+                                if (calculatorAnswer.isNotBlank()) currentInputConnection?.commitText(calculatorAnswer, 1)
+                            }
+                            "=" -> {
+                                try {
+                                    calculatorAnswer = ScientificMath.evaluate(calculatorExpression.toString())
+                                    setInputView(buildKeyboard())
+                                } catch (_: Exception) {
+                                    calculatorAnswer = "Error"
+                                    setInputView(buildKeyboard())
+                                }
+                            }
+                            "sin", "cos", "tan", "log", "ln" -> {
+                                calculatorExpression.append("$character(")
+                                calculatorAnswer = ""
+                                setInputView(buildKeyboard())
+                            }
+                            "√" -> { calculatorExpression.append("sqrt("); calculatorAnswer = ""; setInputView(buildKeyboard()) }
+                            "×" -> { calculatorExpression.append("*"); calculatorAnswer = ""; setInputView(buildKeyboard()) }
+                            "÷" -> { calculatorExpression.append("/"); calculatorAnswer = ""; setInputView(buildKeyboard()) }
+                            "−" -> { calculatorExpression.append("-"); calculatorAnswer = ""; setInputView(buildKeyboard()) }
+                            "x²" -> { calculatorExpression.append("^2"); calculatorAnswer = ""; setInputView(buildKeyboard()) }
+                            "π" -> { calculatorExpression.append("pi"); calculatorAnswer = ""; setInputView(buildKeyboard()) }
+                            else -> { calculatorExpression.append(character); calculatorAnswer = ""; setInputView(buildKeyboard()) }
                         }
+                    } else if (symbolMode && character == "⌫") {
+                        currentInputConnection?.deleteSurroundingText(1, 0)
+                    } else if (symbolMode && character == "ABC") {
+                        symbolMode = false
+                        setInputView(buildKeyboard())
                     } else if ((ctrlArmed || altArmed) && character.length == 1 && character[0].isLetter()) {
                         val keyCode = letterKeyCode(character[0].lowercaseChar())
                         if (keyCode != android.view.KeyEvent.KEYCODE_UNKNOWN) {
@@ -263,7 +338,7 @@ class VishKeyboardService : InputMethodService() {
                 })
             }
 
-            if (!calculatorMode && keyboardMode != 2 && index == 2) {
+            if (!calculatorMode && !symbolMode && keyboardMode != 2 && index == 2) {
                 line.addView(makeKey("⌫", 1.25f, c.specialKey, keyHeight, 20f, c) {
                     if (keyboardMode == 1 && singlishBuffer.isNotEmpty()) {
                         singlishBuffer.deleteCharAt(singlishBuffer.length - 1)
@@ -277,12 +352,18 @@ class VishKeyboardService : InputMethodService() {
 
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val bottomHeight = (keyHeight + 1).coerceAtLeast(46)
-        bottom.addView(makeKey(if (calculatorMode) "ABC" else "?123", 1.15f, c.specialKey, bottomHeight, 13f, c) {
-            calculatorMode = false
+        bottom.addView(makeKey(if (calculatorMode || symbolMode) "ABC" else "?123", 1.15f, c.specialKey, bottomHeight, 13f, c) {
+            if (calculatorMode) {
+                calculatorMode = false
+                symbolMode = false
+            } else {
+                symbolMode = !symbolMode
+            }
             setInputView(buildKeyboard())
         })
-        bottom.addView(makeKey("☺", .8f, c.specialKey, bottomHeight, 19f, c) {
-            commitPendingSinglish("🙂")
+        bottom.addView(makeKey(if (style == "cute") "❤️" else "☺", .8f,
+            if (style == "cute") c.accent else c.specialKey, bottomHeight, 18f, c) {
+            commitPendingSinglish(if (style == "cute") "❤️" else "🙂")
         })
         bottom.addView(makeKey("🌐", .85f, c.specialKey, bottomHeight, 18f, c) {
             commitPendingSinglish("")
@@ -290,8 +371,13 @@ class VishKeyboardService : InputMethodService() {
             shifted = false
             setInputView(buildKeyboard())
         })
-        bottom.addView(makeKey(if (calculatorMode) "Scientific" else if (keyboardMode == 1) "Singlish" else "Hima Board", 2.8f,
-            c.key, bottomHeight, 13f, c) { if (!calculatorMode) commitPendingSinglish(" ") })
+        bottom.addView(makeKey(if (calculatorMode) "Scientific" else if (keyboardMode == 1) "Singlish" else "HIMA ♡", 2.8f,
+            c.key, bottomHeight, 13f, c) {
+                if (!calculatorMode) {
+                    if (style == "cute") commitPendingSinglish("Love you ❤️")
+                    else commitPendingSinglish(" ")
+                }
+            })
         bottom.addView(makeKey(",", .65f, c.specialKey, bottomHeight, 18f, c) {
             commitPendingSinglish(",")
         })
@@ -413,6 +499,200 @@ class VishKeyboardService : InputMethodService() {
         }
         popupRef = popup
         keyboardRoot?.let { popup.showAtLocation(it, Gravity.CENTER, 0, 0) }
+    }
+
+
+    private fun showEmojiPopup() {
+        val all = listOf(
+            "❤️","🩷","🧡","💛","💚","🩵","💙","💜","🤎","🖤","🤍","💕","💞","💓","💗","💖","💘","💝","💟","❣️","💔","❤️‍🩹",
+            "😀","😃","😄","😁","😆","🥹","😊","😇","🙂","🙃","😉","😍","🥰","😘","😗","😙","😚","🤗","🤭","🫶","🤔","😎",
+            "😂","🤣","😭","🥺","😢","😤","😡","🤯","😴","🤒","😷","🤩","😋","😜","🤪","😏","🙄","😬","😳","🫣",
+            "🌸","🌷","🌹","🌺","🌻","🌼","🪷","🦋","🐻","🐼","🐰","🐱","🐶","🐣","🦄","🌈","⭐","✨","🌙","☀️",
+            "🎀","🎉","🎂","🎁","💐","🍓","🍒","🍑","🍉","🍫","☕","🧸","💍","👑","🔥","💯","🙏","👏","👍","👎"
+        )
+        val favorites = prefs.getString("favorite_emojis", "").orEmpty()
+            .split("|").filter { it.isNotBlank() }.toMutableList()
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(27, 23, 42))
+                cornerRadius = dp(23).toFloat()
+                setStroke(dp(1), Color.rgb(78, 60, 103))
+            }
+            elevation = dp(18).toFloat()
+        }
+        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        header.addView(TextView(this).apply {
+            text = "♡  Emoji library"
+            textSize = 19f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+        }, LinearLayout.LayoutParams(0, dp(42), 1f))
+        header.addView(TextView(this).apply {
+            text = "✕"
+            textSize = 20f
+            gravity = Gravity.CENTER
+            setTextColor(Color.LTGRAY)
+            setOnClickListener { popupRef?.dismiss() }
+        }, LinearLayout.LayoutParams(dp(42), dp(42)))
+        panel.addView(header)
+        panel.addView(TextView(this).apply {
+            text = "Tap an emoji to type it • ☆ to pin it to your keyboard bar"
+            textSize = 12f
+            setTextColor(Color.LTGRAY)
+            setPadding(dp(4), 0, 0, dp(8))
+        })
+        panel.addView(TextView(this).apply {
+            text = "YOUR FAVORITES"
+            textSize = 11f
+            setTextColor(Color.rgb(211, 151, 255))
+            setPadding(dp(4), dp(5), 0, dp(5))
+        })
+        val favRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        (favorites.take(8).ifEmpty { listOf("❤️","🥰","✨","🌸") }).forEach { em ->
+            val item = TextView(this).apply {
+                text = em
+                textSize = 23f
+                gravity = Gravity.CENTER
+                setOnClickListener { commitPendingSinglish(em); popupRef?.dismiss() }
+            }
+            favRow.addView(item, LinearLayout.LayoutParams(0, dp(42), 1f))
+        }
+        panel.addView(favRow)
+        val scroll = ScrollView(this)
+        val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        all.chunked(6).forEach { group ->
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            group.forEach { em ->
+                val cell = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
+                val emojiButton = TextView(this).apply {
+                    text = em
+                    textSize = 24f
+                    gravity = Gravity.CENTER
+                    setOnClickListener { commitPendingSinglish(em); popupRef?.dismiss() }
+                }
+                cell.addView(emojiButton, LinearLayout.LayoutParams(-1, dp(42)))
+                val pin = TextView(this).apply {
+                    text = if (favorites.contains(em)) "★" else "☆"
+                    textSize = 13f
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.rgb(218, 166, 255))
+                    setOnClickListener {
+                        if (favorites.contains(em)) favorites.remove(em)
+                        else if (favorites.size < 8) favorites.add(0, em)
+                        prefs.edit().putString("favorite_emojis", favorites.distinct().joinToString("|")).apply()
+                        popupRef?.dismiss()
+                        showEmojiPopup()
+                        keyboardRoot?.let { setInputView(buildKeyboard()) }
+                    }
+                }
+                cell.addView(pin, LinearLayout.LayoutParams(-1, dp(22)))
+                row.addView(cell, LinearLayout.LayoutParams(0, dp(64), 1f))
+            }
+            repeat(6 - group.size) { row.addView(View(this), LinearLayout.LayoutParams(0, dp(64), 1f)) }
+            grid.addView(row)
+        }
+        scroll.addView(grid)
+        panel.addView(scroll, LinearLayout.LayoutParams(-1, dp(310)))
+        val popup = PopupWindow(panel, resources.displayMetrics.widthPixels - dp(26), dp(470), true).apply {
+            isOutsideTouchable = true
+            setBackgroundDrawable(GradientDrawable().apply { setColor(Color.TRANSPARENT) })
+            elevation = dp(20).toFloat()
+        }
+        popupRef = popup
+        keyboardRoot?.let { popup.showAtLocation(it, Gravity.CENTER, 0, 0) }
+    }
+
+    private object ScientificMath {
+        fun evaluate(source: String): String {
+            val parser = Parser(source)
+            val value = parser.parse()
+            if (!value.isFinite()) throw IllegalArgumentException("Invalid result")
+            val rounded = if (kotlin.math.abs(value - kotlin.math.round(value)) < 1e-10)
+                kotlin.math.round(value).toLong().toString()
+            else String.format(java.util.Locale.US, "%.10f", value).trimEnd('0').trimEnd('.')
+            return rounded
+        }
+
+        private class Parser(private val input: String) {
+            private var pos = 0
+            fun parse(): Double {
+                val result = expression()
+                skip()
+                if (pos != input.length) error("Unexpected character")
+                return result
+            }
+            private fun skip() { while (pos < input.length && input[pos].isWhitespace()) pos++ }
+            private fun eat(c: Char): Boolean {
+                skip()
+                if (pos < input.length && input[pos] == c) { pos++; return true }
+                return false
+            }
+            private fun expression(): Double {
+                var value = term()
+                while (true) {
+                    value = when {
+                        eat('+') -> value + term()
+                        eat('-') -> value - term()
+                        else -> return value
+                    }
+                }
+            }
+            private fun term(): Double {
+                var value = power()
+                while (true) {
+                    value = when {
+                        eat('*') -> value * power()
+                        eat('/') -> value / power()
+                        eat('%') -> value % power()
+                        else -> return value
+                    }
+                }
+            }
+            private fun power(): Double {
+                var value = unary()
+                if (eat('^')) value = Math.pow(value, power())
+                return value
+            }
+            private fun unary(): Double {
+                if (eat('+')) return unary()
+                if (eat('-')) return -unary()
+                return atom()
+            }
+            private fun atom(): Double {
+                skip()
+                if (eat('(')) {
+                    val v = expression()
+                    if (!eat(')')) error("Missing )")
+                    return v
+                }
+                if (pos < input.length && input[pos].isDigit() || (pos < input.length && input[pos] == '.')) {
+                    val start = pos
+                    while (pos < input.length && (input[pos].isDigit() || input[pos] == '.')) pos++
+                    return input.substring(start, pos).toDouble()
+                }
+                val start = pos
+                while (pos < input.length && input[pos].isLetter()) pos++
+                val name = input.substring(start, pos).lowercase()
+                if (name == "pi") return Math.PI
+                if (name == "e") return Math.E
+                if (name in listOf("sin","cos","tan","sqrt","log","ln")) {
+                    if (!eat('(')) error("Missing function bracket")
+                    val x = expression()
+                    if (!eat(')')) error("Missing function )")
+                    return when (name) {
+                        "sin" -> kotlin.math.sin(Math.toRadians(x))
+                        "cos" -> kotlin.math.cos(Math.toRadians(x))
+                        "tan" -> kotlin.math.tan(Math.toRadians(x))
+                        "sqrt" -> kotlin.math.sqrt(x)
+                        "log" -> kotlin.math.log10(x)
+                        else -> kotlin.math.ln(x)
+                    }
+                }
+                error("Invalid expression")
+            }
+        }
     }
 
     private fun showClipboardPopup() {
@@ -663,8 +943,12 @@ class VishKeyboardService : InputMethodService() {
         }
         elevation = dp(1).toFloat()
         setOnClickListener {
-            alpha = .86f
-            post { alpha = 1f }
+            animate().cancel()
+            scaleX = 1f
+            scaleY = 1f
+            animate().scaleX(.94f).scaleY(.94f).setDuration(65).withEndAction {
+                animate().scaleX(1f).scaleY(1f).setDuration(105).start()
+            }.start()
             if (prefs.getBoolean("vibration", true)) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             if (prefs.getBoolean("sound", false)) {
                 try { (getSystemService(Context.AUDIO_SERVICE) as AudioManager)
