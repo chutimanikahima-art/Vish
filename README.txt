@@ -1,24 +1,24 @@
-HIMA Board v2.5
+HIMA Board v3.0 Pro
 
-This is the complete Android Studio / GitHub Actions project.
+Android keyboard + companion app source.
 
-Features in this update:
-- Hima Board app branding and app icon.
-- Animated full-screen splash.
-- Full-screen setup gate: enable and select Hima Board before opening settings.
-- Live animated activation status.
-- Custom app background image and keyboard photo background.
-- Clipboard popup in the keyboard with persistent pinned clips.
-- Existing keyboard themes, sizing, Singlish and Sinhala/English modes.
+Highlights:
+- Cute, Normal and Developer keyboard styles
+- Clipboard popup with latest text and pinned clips
+- Quick phrases with custom saved phrases
+- Settings backup and restore using a HIMA3 clipboard code
+- Photo backgrounds, theme, key size, opacity, roundness, sound, vibration and touch ripple controls
+- Scientific input panel (inserts math expressions; it does not evaluate them)
+- Sinhala / English / basic Singlish modes
 
 Build:
-1. Upload/replace the project files in your GitHub repository.
-2. Open GitHub Actions and run the Android build workflow.
-3. Download the VISH/Hima Board debug APK artifact.
-4. Install the APK, then Enable and Select Hima Board in the first-run screen.
+1. Keep the existing Git repository .git folder.
+2. Replace project files with the contents of this ZIP.
+3. Push to the main branch or run the GitHub Actions workflow manually.
+4. Download the Hima-Board-debug artifact.
 
-Important:
-- Keep your existing .git folder when replacing project files.
-- Do not delete the GitHub Actions workflow in your repository.
-- Clipboard pins are stored only when you explicitly tap Pin latest. Android does not let apps silently read the full clipboard history.
-- Build and test on a real Android device before daily use.
+Developer: Vishath Kaushika
+Package: com.vish.keyboard
+Version: 3.0 (versionCode 9)
+
+Build note: This source package has not been built with Gradle in this environment. Run GitHub Actions and test the APK on a device before release.

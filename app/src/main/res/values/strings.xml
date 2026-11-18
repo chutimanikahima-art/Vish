@@ -1,1 +1,3 @@
-<resources><string name="app_name">Hima Board</string></resources>
+<resources>
+    <string name="app_name">HIMA Board</string>
+</resources>

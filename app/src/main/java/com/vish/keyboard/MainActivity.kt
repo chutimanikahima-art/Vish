@@ -8,6 +8,12 @@ import android.animation.ObjectAnimator
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.content.Context
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.app.AlertDialog
+import android.widget.EditText
+import android.util.Base64
+import org.json.JSONObject
 import android.graphics.Color
 import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
@@ -294,6 +300,12 @@ class MainActivity : Activity() {
             addView(keyboardPreview(p))
         }
         parent.addView(hero)
+        val styleNow = (prefs.getString("keyboardStyle", "normal") ?: "normal").replaceFirstChar { it.uppercase() }
+        parent.addView(card(p, p.raised).apply {
+            addView(text("Current keyboard style", 13f, p.muted))
+            addView(text("$styleNow  •  Customize in Settings", 17f, p.text, true))
+            setOnClickListener { currentPage = "settings"; render() }
+        })
 
         parent.addView(section("Keyboard setup", p))
         val enabled = isVishEnabled()
@@ -349,6 +361,24 @@ class MainActivity : Activity() {
             "Customize the app and keyboard together.",
             14f, p.muted
         ).apply { setPadding(0, dp(5), 0, dp(18)) })
+
+        parent.addView(section("Keyboard style", p))
+        parent.addView(text("Switch the keyboard between Cute, Normal and Developer layouts.", 13f, p.muted))
+        val styleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val activeStyle = prefs.getString("keyboardStyle", "normal") ?: "normal"
+        listOf("cute" to "Cute ♡", "normal" to "Normal", "developer" to "Developer") .forEach { (id, label) ->
+            styleRow.addView(themeChoice(label, activeStyle == id, p) {
+                prefs.edit().putString("keyboardStyle", id).remove("color").apply()
+                toast("$label keyboard style applied")
+                currentPage = "settings"
+                render()
+            }, LinearLayout.LayoutParams(0, dp(72), 1f).apply {
+                if (id != "cute") leftMargin = dp(4)
+                if (id != "developer") rightMargin = dp(4)
+            })
+        }
+        parent.addView(styleRow)
+        parent.addView(text("Developer style adds a code row, navigation keys and quick symbols. Cute uses softer colors and rounded keys.", 12f, p.muted))
 
         parent.addView(section("Appearance", p))
         parent.addView(text("Choose a theme", 15f, p.text, true))
@@ -509,14 +539,70 @@ class MainActivity : Activity() {
             "touchEffect"
         ))
 
+        parent.addView(section("Pro typing tools", p))
+        parent.addView(toggleRow("Emoji suggestion row", prefs.getBoolean("emojiRow", true), p, "emojiRow"))
+        parent.addView(toggleRow("Number row", prefs.getBoolean("numberRow", true), p, "numberRow"))
+        parent.addView(toggleRow("Developer navigation row", prefs.getBoolean("devNavRow", true), p, "devNavRow"))
+        parent.addView(actionButton("Clipboard & pinned text help", p) {
+            AlertDialog.Builder(this)
+                .setTitle("Hima Clipboard")
+                .setMessage("Open the keyboard and tap the clipboard icon. You can paste the latest copied text and pin important text for later. Pinned clips stay on this device.")
+                .setPositiveButton("OK", null).show()
+        })
+        parent.addView(section("Backup & restore", p))
+        parent.addView(text("Save your Hima Board preferences as a code, or restore them later.", 13f, p.muted))
+        parent.addView(actionButton("Copy settings backup", p) { copySettingsBackup() })
+        parent.addView(actionButton("Restore from clipboard", p) { restoreSettingsBackup() })
+
         parent.addView(space(16))
-        parent.addView(text("Hima Board  •  Version 2.5", 13f, p.muted).apply {
+        parent.addView(text("Hima Board  •  Version 3.0", 13f, p.muted).apply {
             gravity = Gravity.CENTER
         })
         parent.addView(text("Developed by Vishath Kaushika", 12f, p.muted).apply {
             gravity = Gravity.CENTER
             setPadding(0, dp(6), 0, dp(8))
         })
+    }
+
+    private fun copySettingsBackup() {
+        try {
+            val json = JSONObject()
+            prefs.all.forEach { (key, value) ->
+                when (value) {
+                    is String, is Boolean, is Int, is Long, is Float, is Double -> json.put(key, value)
+                    else -> Unit
+                }
+            }
+            val encoded = "HIMA3:" + Base64.encodeToString(json.toString().toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("Hima Board backup", encoded))
+            toast("Backup copied to clipboard")
+        } catch (_: Exception) { toast("Could not create backup") }
+    }
+
+    private fun restoreSettingsBackup() {
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val raw = clipboard.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
+            if (!raw.startsWith("HIMA3:")) { toast("No Hima Board backup found in clipboard"); return }
+            val json = JSONObject(String(Base64.decode(raw.removePrefix("HIMA3:"), Base64.DEFAULT), Charsets.UTF_8))
+            val edit = prefs.edit()
+            val keys = json.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                when (val value = json.get(key)) {
+                    is Boolean -> edit.putBoolean(key, value)
+                    is Int -> edit.putInt(key, value)
+                    is Long -> edit.putLong(key, value)
+                    is Double -> edit.putFloat(key, value.toFloat())
+                    is String -> edit.putString(key, value)
+                }
+            }
+            edit.apply()
+            toast("Hima Board settings restored")
+            currentPage = "settings"
+            render()
+        } catch (_: Exception) { toast("Backup code is invalid") }
     }
 
     private fun buildBottomNav(p: Palette): View {
@@ -615,20 +701,37 @@ class MainActivity : Activity() {
     }
 
     private fun keyboardPreview(p: Palette): View {
+        val style = prefs.getString("keyboardStyle", "normal") ?: "normal"
+        val previewSurface = when (style) {
+            "cute" -> Color.rgb(255, 237, 247)
+            "developer" -> Color.rgb(12, 15, 22)
+            else -> p.raised
+        }
+        val previewKey = when (style) {
+            "cute" -> Color.rgb(255, 250, 253)
+            "developer" -> Color.rgb(31, 39, 52)
+            else -> p.surface
+        }
+        val previewText = if (style == "cute") Color.rgb(87, 48, 78) else p.text
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(p.raised, p.border)
+            background = rounded(previewSurface, p.border)
             setPadding(dp(7), dp(7), dp(7), dp(7))
         }
-        box.addView(text("HIMA     ❤️   🙂   🔥   🥰   👍", 13f, p.text, true).apply {
-            gravity = Gravity.CENTER
-        })
+        val header = when (style) {
+            "cute" -> "HIMA  ♡     🌸  🩷  ✨  🎀"
+            "developer" -> "HIMA / DEV     ▤   ✦   SCI"
+            else -> "HIMA     ❤️   🙂   🔥   🥰   👍"
+        }
+        box.addView(text(header, 13f, previewText, true).apply { gravity = Gravity.CENTER })
         box.addView(space(5))
-        listOf("q  w  e  r  t  y  u  i  o  p", "a  s  d  f  g  h  j  k  l", "⇧   z  x  c  v  b  n  m   ⌫").forEach {
-            box.addView(text(it, 14f, p.text, true).apply {
+        val rows = if (style == "developer") listOf("Tab  Esc  Ctrl  Alt  Home  End", "(  )  [  ]  {  }  <  >  =  ;", "q  w  e  r  t  y  u  i  o  p")
+            else listOf("q  w  e  r  t  y  u  i  o  p", "a  s  d  f  g  h  j  k  l", "⇧   z  x  c  v  b  n  m   ⌫")
+        rows.forEach {
+            box.addView(text(it, if (style == "developer") 12f else 14f, previewText, true).apply {
                 gravity = Gravity.CENTER
-                setPadding(0, dp(5), 0, dp(5))
-                background = rounded(p.surface, p.border)
+                setPadding(0, dp(6), 0, dp(6))
+                background = rounded(previewKey, p.border)
             })
             box.addView(space(3))
         }

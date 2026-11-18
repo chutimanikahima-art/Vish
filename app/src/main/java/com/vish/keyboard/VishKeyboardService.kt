@@ -1,17 +1,6 @@
 package com.vish.keyboard
 
 import android.inputmethodservice.InputMethodService
-import android.animation.ValueAnimator
-import android.graphics.Canvas
-import android.graphics.LinearGradient
-import android.graphics.Paint
-import android.graphics.Shader
-import android.os.Handler
-import android.os.Looper
-import android.view.animation.LinearInterpolator
-import android.widget.FrameLayout
-import kotlin.math.PI
-import kotlin.math.sin
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
@@ -21,6 +10,7 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.content.res.ColorStateList
 import android.content.ClipboardManager
+import android.widget.EditText
 import android.media.AudioManager
 import android.net.Uri
 import android.text.SpannableString
@@ -41,31 +31,19 @@ class VishKeyboardService : InputMethodService() {
     private var keyboardMode = 0
     private var shifted = false
     private var calculatorMode = false
+    private var ctrlArmed = false
+    private var altArmed = false
     private var keyboardRoot: View? = null
     private val singlishBuffer = StringBuilder()
 
     private val prefs by lazy { getSharedPreferences("vish_settings", Context.MODE_PRIVATE) }
 
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private var greetingView: TextView? = null
-    private var bgCache: Pair<String, android.graphics.Bitmap>? = null
-    private var animBgView: AnimatedBgView? = null
-
-    // Settings sliders fire many times while dragging; rebuild once after they settle.
-    private val rebuildRunnable = Runnable {
-        if (keyboardRoot != null && currentInputConnection != null) setInputView(buildKeyboard())
-    }
-    private val hideGreetingRunnable = Runnable {
-        greetingView?.animate()?.alpha(0f)?.setDuration(400)?.withEndAction {
-            greetingView?.visibility = View.GONE
-        }?.start()
-    }
-
     private val preferenceListener =
         android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key in setOf("theme", "height", "keySize", "color", "image", "sound", "vibration", "touchEffect", "keyOpacity", "keyRoundness", "fontStyle", "animBg")) {
-                mainHandler.removeCallbacks(rebuildRunnable)
-                mainHandler.postDelayed(rebuildRunnable, 150)
+            if (key in setOf("theme", "height", "keySize", "color", "image", "sound", "vibration", "touchEffect", "keyOpacity", "keyRoundness", "fontStyle", "keyboardStyle", "emojiRow", "numberRow", "devNavRow")) {
+                if (keyboardRoot != null && currentInputConnection != null) {
+                    setInputView(buildKeyboard())
+                }
             }
         }
 
@@ -74,14 +52,21 @@ class VishKeyboardService : InputMethodService() {
         val accent: Int, val text: Int
     )
 
-    private fun keyboardPalette(): KeyboardPalette =
-        if (prefs.getString("theme", "dark") == "light") {
-            KeyboardPalette(Color.rgb(231,237,246), Color.WHITE,
-                Color.rgb(210,219,231), Color.rgb(45,112,220), Color.rgb(28,40,58))
-        } else {
-            KeyboardPalette(Color.rgb(12,20,27), Color.rgb(37,48,63),
-                Color.rgb(53,64,79), Color.rgb(49,125,230), Color.WHITE)
+    private fun keyboardPalette(): KeyboardPalette {
+        return when (prefs.getString("keyboardStyle", "normal")) {
+            "cute" -> KeyboardPalette(Color.rgb(250, 225, 240), Color.rgb(255, 247, 252),
+                Color.rgb(244, 202, 228), Color.rgb(190, 83, 164), Color.rgb(72, 43, 69))
+            "developer" -> KeyboardPalette(Color.rgb(12, 15, 22), Color.rgb(31, 39, 52),
+                Color.rgb(43, 53, 70), Color.rgb(70, 145, 255), Color.rgb(230, 238, 250))
+            else -> if (prefs.getString("theme", "dark") == "light") {
+                KeyboardPalette(Color.rgb(231,237,246), Color.WHITE,
+                    Color.rgb(210,219,231), Color.rgb(45,112,220), Color.rgb(28,40,58))
+            } else {
+                KeyboardPalette(Color.rgb(12,20,27), Color.rgb(37,48,63),
+                    Color.rgb(53,64,79), Color.rgb(49,125,230), Color.WHITE)
+            }
         }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -90,7 +75,6 @@ class VishKeyboardService : InputMethodService() {
 
     override fun onDestroy() {
         prefs.unregisterOnSharedPreferenceChangeListener(preferenceListener)
-        mainHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
 
@@ -99,66 +83,41 @@ class VishKeyboardService : InputMethodService() {
     private fun buildKeyboard(): View {
         val c = keyboardPalette()
         val height = prefs.getInt("height", 410).coerceIn(340, 460)
-        val keyHeight = prefs.getInt("keySize", 56).coerceIn(48, 64)
+        val styleForSize = prefs.getString("keyboardStyle", "normal")
+        val keyHeight = if (styleForSize == "developer") 43 else prefs.getInt("keySize", 56).coerceIn(48, 64)
 
-        // container = background layer (photo / animated / solid), root = keys on top
-        val container = FrameLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(-1, dp(height))
-            minimumHeight = dp(height)
-        }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.TOP
+            gravity = Gravity.CENTER
             setPadding(dp(4), dp(4), dp(4), dp(4))
-            layoutParams = FrameLayout.LayoutParams(-1, -1)
+            layoutParams = LinearLayout.LayoutParams(-1, dp(height))
+            setBackgroundColor(if (prefs.contains("color")) prefs.getInt("color", c.background) else c.background)
         }
         keyboardRoot = root
-        animBgView = null
 
-        val baseColor = prefs.getInt("color", c.background)
-        val photo = prefs.getString("image", null)?.let { loadBackground(it, 1080) }
-        when {
-            photo != null -> container.background = BitmapDrawable(
-                resources,
-                centerCropToFit(photo, resources.displayMetrics.widthPixels, dp(height))
-            )
-            prefs.getBoolean("animBg", true) -> {
-                val view = AnimatedBgView(this, baseColor, mix(baseColor, c.accent, 0.35f))
-                animBgView = view
-                container.addView(view, FrameLayout.LayoutParams(-1, -1))
-            }
-            else -> container.setBackgroundColor(baseColor)
+        prefs.getString("image", null)?.let { raw ->
+            try {
+                contentResolver.openInputStream(Uri.parse(raw))?.use { stream ->
+                    BitmapFactory.decodeStream(stream)?.let { root.background = BitmapDrawable(resources, it) }
+                }
+            } catch (_: Exception) { }
         }
-        container.addView(root)
-
-        greetingView = TextView(this).apply {
-            text = GREETING
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setPadding(dp(14), dp(6), dp(14), dp(6))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(16).toFloat()
-                setColor(c.accent)
-            }
-            isClickable = false
-            elevation = dp(4).toFloat()
-        }
-        container.addView(greetingView, FrameLayout.LayoutParams(
-            -2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(10) })
 
         val toolbar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         toolbar.addView(makeKey("▤", .8f, c.specialKey, 34, 18f, c) { showClipboardPopup() })
+        toolbar.addView(makeKey("✦", .72f, c.specialKey, 34, 17f, c) { showSnippetsPopup() })
         toolbar.addView(TextView(this).apply {
             text = when (keyboardMode) {
                 1 -> "SINGLISH  →  සිංහල"
                 2 -> "සිංහල"
-                else -> "H I M A"
+                else -> when (prefs.getString("keyboardStyle", "normal")) {
+                    "cute" -> "H I M A  ♡"
+                    "developer" -> "HIMA  /  DEV"
+                    else -> "H I M A"
+                }
             }
             textSize = 13f
             setTextColor(c.text)
@@ -173,15 +132,20 @@ class VishKeyboardService : InputMethodService() {
         })
         root.addView(toolbar)
 
-        val emojis = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        listOf("❤️", "💕", "🙂", "💔", "😣", "😘", "😒", "😁", "🥺", "•••").forEach { emoji ->
-            emojis.addView(makeKey(emoji, 1f, Color.TRANSPARENT, 34, 17f, c) {
-                if (emoji != "•••") commitPendingSinglish(emoji)
-            })
+        val style = prefs.getString("keyboardStyle", "normal") ?: "normal"
+        if (style != "developer" && prefs.getBoolean("emojiRow", true)) {
+            val emojis = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            val emojiSet = if (style == "cute") listOf("♡", "🌸", "🩷", "🥰", "✨", "🎀", "😊", "💕", "🦋", "•••")
+                else listOf("❤️", "💕", "🙂", "💔", "😣", "😘", "😒", "😁", "🥺", "•••")
+            emojiSet.forEach { emoji ->
+                emojis.addView(makeKey(emoji, 1f, Color.TRANSPARENT, 34, 17f, c) {
+                    if (emoji != "•••") commitPendingSinglish(emoji)
+                })
+            }
+            root.addView(emojis)
         }
-        root.addView(emojis)
 
-        if (keyboardMode != 2) {
+        if (keyboardMode != 2 && prefs.getBoolean("numberRow", true) && style != "developer") {
             val numbers = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             "1234567890".forEach { n ->
                 numbers.addView(makeKey(n.toString(), 1f, c.key, 32, 13f, c) {
@@ -189,6 +153,32 @@ class VishKeyboardService : InputMethodService() {
                 })
             }
             root.addView(numbers)
+        }
+
+        if (style == "developer" && prefs.getBoolean("devNavRow", true) && !calculatorMode) {
+            val nav = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            listOf("Tab", "Esc", "Ctrl", "Alt", "Home", "End", "←", "↑", "↓", "→").forEach { key ->
+                nav.addView(makeKey(key, 1f, c.specialKey, 34, 11f, c) {
+                    when (key) {
+                        "Ctrl" -> { ctrlArmed = !ctrlArmed; altArmed = false }
+                        "Alt" -> { altArmed = !altArmed; ctrlArmed = false }
+                        "Esc" -> sendArrow(android.view.KeyEvent.KEYCODE_ESCAPE)
+                        "Home" -> sendArrow(android.view.KeyEvent.KEYCODE_MOVE_HOME)
+                        "End" -> sendArrow(android.view.KeyEvent.KEYCODE_MOVE_END)
+                        "←" -> sendArrow(android.view.KeyEvent.KEYCODE_DPAD_LEFT)
+                        "↑" -> sendArrow(android.view.KeyEvent.KEYCODE_DPAD_UP)
+                        "↓" -> sendArrow(android.view.KeyEvent.KEYCODE_DPAD_DOWN)
+                        "→" -> sendArrow(android.view.KeyEvent.KEYCODE_DPAD_RIGHT)
+                        "Tab" -> currentInputConnection?.commitText("\t", 1)
+                    }
+                })
+            }
+            root.addView(nav)
+            val code = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            listOf("(", ")", "[", "]", "{", "}", "<", ">", "=", ";", "_", "\\").forEach { symbol ->
+                code.addView(makeKey(symbol, 1f, c.key, 32, 14f, c) { currentInputConnection?.commitText(symbol, 1) })
+            }
+            root.addView(code)
         }
 
         val rows = if (calculatorMode) listOf(
@@ -244,6 +234,16 @@ class VishKeyboardService : InputMethodService() {
                             "−" -> currentInputConnection?.commitText("-", 1)
                             else -> currentInputConnection?.commitText(character, 1)
                         }
+                    } else if ((ctrlArmed || altArmed) && character.length == 1 && character[0].isLetter()) {
+                        val keyCode = letterKeyCode(character[0].lowercaseChar())
+                        if (keyCode != android.view.KeyEvent.KEYCODE_UNKNOWN) {
+                            val meta = (if (ctrlArmed) android.view.KeyEvent.META_CTRL_ON else 0) or
+                                (if (altArmed) android.view.KeyEvent.META_ALT_ON else 0)
+                            currentInputConnection?.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyCode, meta))
+                            currentInputConnection?.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, keyCode, meta))
+                        }
+                        ctrlArmed = false
+                        altArmed = false
                     } else if (keyboardMode == 1) {
                         singlishBuffer.append(character)
                         currentInputConnection?.setComposingText(transliterate(singlishBuffer.toString()), 1)
@@ -301,7 +301,113 @@ class VishKeyboardService : InputMethodService() {
                 android.view.KeyEvent.KEYCODE_ENTER))
         })
         root.addView(bottom)
-        return container
+        return root
+    }
+
+    private fun letterKeyCode(ch: Char): Int = when (ch) {
+        'a' -> android.view.KeyEvent.KEYCODE_A; 'b' -> android.view.KeyEvent.KEYCODE_B
+        'c' -> android.view.KeyEvent.KEYCODE_C; 'd' -> android.view.KeyEvent.KEYCODE_D
+        'e' -> android.view.KeyEvent.KEYCODE_E; 'f' -> android.view.KeyEvent.KEYCODE_F
+        'g' -> android.view.KeyEvent.KEYCODE_G; 'h' -> android.view.KeyEvent.KEYCODE_H
+        'i' -> android.view.KeyEvent.KEYCODE_I; 'j' -> android.view.KeyEvent.KEYCODE_J
+        'k' -> android.view.KeyEvent.KEYCODE_K; 'l' -> android.view.KeyEvent.KEYCODE_L
+        'm' -> android.view.KeyEvent.KEYCODE_M; 'n' -> android.view.KeyEvent.KEYCODE_N
+        'o' -> android.view.KeyEvent.KEYCODE_O; 'p' -> android.view.KeyEvent.KEYCODE_P
+        'q' -> android.view.KeyEvent.KEYCODE_Q; 'r' -> android.view.KeyEvent.KEYCODE_R
+        's' -> android.view.KeyEvent.KEYCODE_S; 't' -> android.view.KeyEvent.KEYCODE_T
+        'u' -> android.view.KeyEvent.KEYCODE_U; 'v' -> android.view.KeyEvent.KEYCODE_V
+        'w' -> android.view.KeyEvent.KEYCODE_W; 'x' -> android.view.KeyEvent.KEYCODE_X
+        'y' -> android.view.KeyEvent.KEYCODE_Y; 'z' -> android.view.KeyEvent.KEYCODE_Z
+        else -> android.view.KeyEvent.KEYCODE_UNKNOWN
+    }
+
+    private fun sendArrow(code: Int) {
+        currentInputConnection?.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, code))
+        currentInputConnection?.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, code))
+    }
+
+    private fun readSnippets(): MutableList<String> {
+        val encoded = prefs.getString("custom_snippets", "").orEmpty()
+        return encoded.split("|").filter { it.isNotBlank() }.mapNotNull {
+            try { String(android.util.Base64.decode(it, android.util.Base64.DEFAULT), Charsets.UTF_8) }
+            catch (_: Exception) { null }
+        }.toMutableList()
+    }
+
+    private fun saveSnippets(items: List<String>) {
+        val encoded = items.distinct().take(40).joinToString("|") {
+            android.util.Base64.encodeToString(it.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+        }
+        prefs.edit().putString("custom_snippets", encoded).apply()
+    }
+
+    private fun showSnippetsPopup() {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = GradientDrawable().apply { setColor(Color.rgb(27, 23, 42)); cornerRadius = dp(22).toFloat() }
+        }
+        val title = TextView(this).apply {
+            text = "✦  Quick phrases"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(dp(8), dp(7), dp(8), dp(12))
+        }
+        panel.addView(title)
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val defaults = listOf("Hello! 👋", "Thank you! ❤️", "I will reply soon.", "On my way!", "Good morning ☀️", "සුබ උදෑසනක්!", "ස්තුතියි ❤️", "මම පස්සේ කියන්නම්.")
+        (defaults + readSnippets()).distinct().forEach { phrase ->
+            val item = TextView(this).apply {
+                text = phrase
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                setPadding(dp(12), dp(11), dp(12), dp(11))
+                background = GradientDrawable().apply { setColor(Color.rgb(47, 40, 63)); cornerRadius = dp(12).toFloat() }
+                setOnClickListener { currentInputConnection?.commitText(phrase, 1); popupRef?.dismiss() }
+            }
+            list.addView(item, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(5) })
+        }
+        val scroll = ScrollView(this).apply { addView(list) }
+        panel.addView(scroll, LinearLayout.LayoutParams(-1, dp(230)))
+        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val input = EditText(this).apply {
+            hint = "Type a phrase to save"
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.LTGRAY)
+            setSingleLine(true)
+            background = GradientDrawable().apply { setColor(Color.rgb(48, 41, 63)); cornerRadius = dp(10).toFloat() }
+            setPadding(dp(10), 0, dp(10), 0)
+        }
+        panel.addView(input, LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(7) })
+        val add = TextView(this).apply {
+            text = "+ Save phrase"
+            gravity = Gravity.CENTER
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setPadding(dp(8), dp(12), dp(8), dp(12))
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.rgb(235, 91, 181), Color.rgb(129, 83, 244))).apply { cornerRadius = dp(12).toFloat() }
+            setOnClickListener {
+                val value = input.text.toString().trim()
+                if (value.isNotEmpty()) { val items = readSnippets(); items.add(0, value); saveSnippets(items); popupRef?.dismiss(); showSnippetsPopup() }
+            }
+        }
+        actions.addView(add, LinearLayout.LayoutParams(0, dp(44), 1f))
+        val close = TextView(this).apply {
+            text = "Close"; gravity = Gravity.CENTER; textSize = 13f; setTextColor(Color.WHITE)
+            setOnClickListener { popupRef?.dismiss() }
+        }
+        actions.addView(close, LinearLayout.LayoutParams(dp(70), dp(44)))
+        panel.addView(actions)
+        val popup = PopupWindow(panel, resources.displayMetrics.widthPixels - dp(32), dp(390), true).apply {
+            isOutsideTouchable = true
+            setBackgroundDrawable(GradientDrawable().apply { setColor(Color.TRANSPARENT) })
+            elevation = dp(16).toFloat()
+        }
+        popupRef = popup
+        keyboardRoot?.let { popup.showAtLocation(it, Gravity.CENTER, 0, 0) }
     }
 
     private fun showClipboardPopup() {
@@ -538,13 +644,15 @@ class VishKeyboardService : InputMethodService() {
         val alphaColor = Color.argb((opacity * 255 / 100), Color.red(color), Color.green(color), Color.blue(color))
         val shape = GradientDrawable().apply {
             setColor(alphaColor)
-            cornerRadius = dp(prefs.getInt("keyRoundness", 12).coerceIn(4, 22)).toFloat()
+            val style = prefs.getString("keyboardStyle", "normal")
+            val defaultRadius = if (style == "cute") 17 else if (style == "developer") 6 else 12
+            cornerRadius = dp(prefs.getInt("keyRoundness", defaultRadius).coerceIn(4, 22)).toFloat()
             setStroke(dp(1), Color.argb(34, Color.red(colors.text), Color.green(colors.text), Color.blue(colors.text)))
         }
         background = if (prefs.getBoolean("touchEffect", true)) {
             RippleDrawable(ColorStateList.valueOf(Color.argb(100, Color.red(colors.accent), Color.green(colors.accent), Color.blue(colors.accent))), shape, null)
         } else shape
-        typeface = if (prefs.getString("fontStyle", "rounded") == "mono") Typeface.MONOSPACE else Typeface.DEFAULT
+        typeface = if (prefs.getString("keyboardStyle", "normal") == "developer" || prefs.getString("fontStyle", "rounded") == "mono") Typeface.MONOSPACE else Typeface.DEFAULT
         layoutParams = LinearLayout.LayoutParams(0, dp(height), weight).apply {
             setMargins(dp(2), dp(3), dp(2), dp(3))
         }
@@ -563,109 +671,9 @@ class VishKeyboardService : InputMethodService() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
-    override fun onEvaluateFullscreenMode(): Boolean = false
-
-    override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
-        super.onStartInputView(info, restarting)
-        showGreeting()
-    }
-
-    private fun showGreeting() {
-        val v = greetingView ?: return
-        mainHandler.removeCallbacks(hideGreetingRunnable)
-        v.animate().cancel()
-        v.visibility = View.VISIBLE
-        v.alpha = 1f
-        mainHandler.postDelayed(hideGreetingRunnable, 2500)
-    }
-
-    // Decode the photo once at reduced size instead of full camera resolution on every rebuild.
-    private fun loadBackground(raw: String, maxPx: Int): android.graphics.Bitmap? {
-        bgCache?.takeIf { it.first == raw }?.let { return it.second }
-        return try {
-            val uri = Uri.parse(raw)
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-            var sample = 1
-            while (bounds.outWidth / sample > maxPx * 2 || bounds.outHeight / sample > maxPx * 2) sample *= 2
-            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-            val bmp = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
-            bmp?.also { bgCache = raw to it }
-        } catch (_: Exception) { null }
-    }
-
-    // Scale the photo so it fully covers w x h (keeping aspect ratio), then cut the overflow from the centre.
-    private fun centerCropToFit(src: android.graphics.Bitmap, w: Int, h: Int): android.graphics.Bitmap {
-        if (w <= 0 || h <= 0 || src.width <= 0 || src.height <= 0) return src
-        val scale = maxOf(w.toFloat() / src.width, h.toFloat() / src.height)
-        val sw = maxOf(w, Math.round(src.width * scale))
-        val sh = maxOf(h, Math.round(src.height * scale))
-        val scaled = android.graphics.Bitmap.createScaledBitmap(src, sw, sh, true)
-        val x = (sw - w) / 2
-        val y = (sh - h) / 2
-        return android.graphics.Bitmap.createBitmap(scaled, x, y, w, h)
-    }
-
-    private fun mix(a: Int, b: Int, t: Float): Int {
-        val r = Color.red(a) + (Color.red(b) - Color.red(a)) * t
-        val g = Color.green(a) + (Color.green(b) - Color.green(a)) * t
-        val bl = Color.blue(a) + (Color.blue(b) - Color.blue(a)) * t
-        return Color.rgb(r.toInt(), g.toInt(), bl.toInt())
-    }
-
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
         shifted = attribute?.inputType?.and(0x0000000f) == 2
         singlishBuffer.clear()
-    }
-}
-
-private const val GREETING = "Hima for you ♡"
-
-// Slow gradient wave behind the keys. Only runs while the keyboard window is visible.
-private class AnimatedBgView(ctx: Context, private val c1: Int, private val c2: Int) : View(ctx) {
-    private val paint = Paint()
-    private var phase = 0f
-    private val animator = ValueAnimator.ofFloat(0f, 1f).apply {
-        duration = 8000L
-        repeatCount = ValueAnimator.INFINITE
-        interpolator = LinearInterpolator()
-        addUpdateListener {
-            phase = it.animatedFraction
-            invalidate()
-        }
-    }
-
-    private fun startAnim() { if (!animator.isRunning) animator.start() }
-    private fun stopAnim() { animator.cancel() }
-
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        startAnim()
-    }
-
-    override fun onDetachedFromWindow() {
-        stopAnim()
-        super.onDetachedFromWindow()
-    }
-
-    override fun onWindowVisibilityChanged(visibility: Int) {
-        super.onWindowVisibilityChanged(visibility)
-        if (visibility == VISIBLE) startAnim() else stopAnim()
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        val w = width.toFloat()
-        val h = height.toFloat()
-        if (w <= 0f || h <= 0f) return
-        val wave = sin(phase * 2 * PI).toFloat() * 0.5f + 0.5f
-        val mid = 0.3f + 0.4f * wave
-        paint.shader = LinearGradient(
-            0f, 0f, w, h,
-            intArrayOf(c1, c2, c1),
-            floatArrayOf(0f, mid, 1f),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(0f, 0f, w, h, paint)
     }
 }

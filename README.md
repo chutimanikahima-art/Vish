@@ -91,3 +91,17 @@ The Settings page now includes a separate app background image picker and reset 
 ## Build status
 
 Source package only. A successful Gradle build and on-device test have not yet been confirmed for this version.
+
+
+## HIMA Board 3.0 – Full redesign update
+
+- Cute ♡, Normal and Developer keyboard styles, shared through app preferences.
+- Developer style includes a navigation row (Tab, Esc, Ctrl, Alt, Home, End, arrows) and a programming-symbol row.
+- Cute style uses a soft pink palette, rounder keys and a cute emoji row. Normal keeps the familiar layout.
+- Clipboard popup with latest copied text and up to 20 locally pinned clips.
+- Quick phrases popup with built-in English/Sinhala phrases and up to 40 custom phrases.
+- Settings backup and restore through a HIMA3 code copied to the device clipboard.
+- Toggles for emoji, number and developer navigation rows.
+- Existing photo backgrounds, theme options, key size, sound, vibration and ripple effects retained.
+
+Build: GitHub Actions workflow `Hima Board Android Build`. The source is prepared for build; install and test on the target phone before public release.
