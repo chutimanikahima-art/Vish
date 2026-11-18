@@ -3,6 +3,16 @@ package com.vish.keyboard
 import android.inputmethodservice.InputMethodService
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PathMeasure
+import android.graphics.RectF
+import android.graphics.Matrix
+import android.graphics.PixelFormat
+import android.graphics.drawable.Drawable
+import android.animation.ValueAnimator
+import android.view.animation.LinearInterpolator
 import android.graphics.Typeface
 import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
@@ -50,7 +60,7 @@ class VishKeyboardService : InputMethodService() {
 
     private val preferenceListener =
         android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key in setOf("theme", "height", "keySize", "color", "image", "sound", "vibration", "touchEffect", "keyOpacity", "keyRoundness", "fontStyle", "keyboardStyle", "emojiRow", "numberRow", "devNavRow", "favorite_emojis")) {
+            if (key in setOf("theme", "height", "keySize", "color", "image", "customKeyColor", "sound", "vibration", "touchEffect", "keyOpacity", "keyRoundness", "fontStyle", "keyboardStyle", "emojiRow", "numberRow", "devNavRow", "favorite_emojis")) {
                 if (keyboardRoot != null && currentInputConnection != null) {
                     setInputView(buildKeyboard())
                 }
@@ -63,7 +73,7 @@ class VishKeyboardService : InputMethodService() {
     )
 
     private fun keyboardPalette(): KeyboardPalette {
-        return when (prefs.getString("keyboardStyle", "normal")) {
+        val base = when (prefs.getString("keyboardStyle", "normal")) {
             "cute" -> KeyboardPalette(Color.rgb(250, 225, 240), Color.rgb(255, 247, 252),
                 Color.rgb(244, 202, 228), Color.rgb(190, 83, 164), Color.rgb(72, 43, 69))
             "developer" -> KeyboardPalette(Color.rgb(12, 15, 22), Color.rgb(31, 39, 52),
@@ -76,6 +86,11 @@ class VishKeyboardService : InputMethodService() {
                     Color.rgb(53,64,79), Color.rgb(49,125,230), Color.WHITE)
             }
         }
+        return if (prefs.contains("customKeyColor")) {
+            val custom = prefs.getInt("customKeyColor", base.key)
+            val brightness = (Color.red(custom) * 299 + Color.green(custom) * 587 + Color.blue(custom) * 114) / 1000
+            base.copy(key = custom, text = if (brightness < 135) Color.WHITE else Color.rgb(35, 39, 48))
+        } else base
     }
 
     override fun onCreate() {
@@ -104,11 +119,42 @@ class VishKeyboardService : InputMethodService() {
             setBackgroundColor(if (prefs.contains("color")) prefs.getInt("color", c.background) else c.background)
         }
         keyboardRoot = root
+        root.foreground = RgbRippleDrawable()
 
         prefs.getString("image", null)?.let { raw ->
             try {
-                contentResolver.openInputStream(Uri.parse(raw))?.use { stream ->
-                    BitmapFactory.decodeStream(stream)?.let { root.background = BitmapDrawable(resources, it) }
+                val imageUri = Uri.parse(raw)
+                val targetWidth = resources.displayMetrics.widthPixels.coerceAtLeast(1)
+                val targetHeight = dp(height).coerceAtLeast(1)
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                contentResolver.openInputStream(imageUri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                var sampleSize = 1
+                while (bounds.outWidth / sampleSize > targetWidth * 2 || bounds.outHeight / sampleSize > targetHeight * 2) {
+                    sampleSize *= 2
+                }
+                val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize.coerceAtLeast(1) }
+                contentResolver.openInputStream(imageUri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, decodeOptions)?.let { source ->
+                        val targetRatio = targetWidth.toFloat() / targetHeight.toFloat()
+                        val sourceRatio = source.width.toFloat() / source.height.toFloat()
+                        val cropWidth: Int
+                        val cropHeight: Int
+                        if (sourceRatio > targetRatio) {
+                            cropHeight = source.height
+                            cropWidth = (source.height * targetRatio).toInt().coerceIn(1, source.width)
+                        } else {
+                            cropWidth = source.width
+                            cropHeight = (source.width / targetRatio).toInt().coerceIn(1, source.height)
+                        }
+                        val left = ((source.width - cropWidth) / 2).coerceAtLeast(0)
+                        val top = ((source.height - cropHeight) / 2).coerceAtLeast(0)
+                        val centerCrop = android.graphics.Bitmap.createBitmap(source, left, top, cropWidth, cropHeight)
+                        root.background = BitmapDrawable(resources, centerCrop).apply {
+                            gravity = Gravity.FILL
+                            setFilterBitmap(true)
+                        }
+                        if (centerCrop !== source) source.recycle()
+                    }
                 }
             } catch (_: Exception) { }
         }
@@ -1004,6 +1050,7 @@ class VishKeyboardService : InputMethodService() {
             animate().scaleX(.94f).scaleY(.94f).setDuration(65).withEndAction {
                 animate().scaleX(1f).scaleY(1f).setDuration(105).start()
             }.start()
+            startRgbRipple(this)
             if (prefs.getBoolean("vibration", true)) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             if (prefs.getBoolean("sound", false)) {
                 try { (getSystemService(Context.AUDIO_SERVICE) as AudioManager)
@@ -1011,6 +1058,129 @@ class VishKeyboardService : InputMethodService() {
             }
             action()
         }
+    }
+
+    private fun startRgbRipple(source: View) {
+        val root = keyboardRoot ?: return
+        val rootLocation = IntArray(2)
+        val keyLocation = IntArray(2)
+        root.getLocationOnScreen(rootLocation)
+        source.getLocationOnScreen(keyLocation)
+        val x = keyLocation[0] - rootLocation[0] + source.width / 2f
+        val y = keyLocation[1] - rootLocation[1] + source.height / 2f
+        (root.foreground as? RgbRippleDrawable)?.start(x, y)
+    }
+
+    /** A water-like RGB pulse that begins at the pressed key and travels around
+     * the keyboard's outer edge before fading away. */
+    private inner class RgbRippleDrawable : Drawable() {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        private val wavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+        private val path = Path()
+        private val segment = Path()
+        private val rect = RectF()
+        private var animator: ValueAnimator? = null
+        private var progress = 0f
+        private var touchX = 0f
+        private var touchY = 0f
+        private var startDistance = 0f
+        private var perimeter = 1f
+        private var alphaValue = 255
+        private val rainbow = intArrayOf(
+            Color.CYAN, Color.BLUE, Color.MAGENTA, Color.RED,
+            Color.YELLOW, Color.GREEN, Color.CYAN
+        )
+
+        fun start(x: Float, y: Float) {
+            touchX = x
+            touchY = y
+            progress = 0f
+            alphaValue = 255
+            animator?.cancel()
+            animator = ValueAnimator.ofFloat(0f, 1.25f).apply {
+                duration = 1650L
+                interpolator = LinearInterpolator()
+                addUpdateListener {
+                    progress = it.animatedValue as Float
+                    alphaValue = if (progress <= 1f) 255 else
+                        (255f * (1f - ((progress - 1f) / .25f))).toInt().coerceIn(0, 255)
+                    invalidateSelf()
+                }
+                start()
+            }
+        }
+
+        override fun draw(canvas: Canvas) {
+            val b = bounds
+            if (b.width() <= 0 || b.height() <= 0 || progress <= 0f) return
+            val inset = 7f
+            rect.set(b.left + inset, b.top + inset, b.right - inset, b.bottom - inset)
+            path.reset()
+            path.addRoundRect(rect, 22f, 22f, Path.Direction.CW)
+            val measure = PathMeasure(path, false)
+            perimeter = measure.length.coerceAtLeast(1f)
+
+            val px = touchX.coerceIn(rect.left, rect.right)
+            val py = touchY.coerceIn(rect.top, rect.bottom)
+            val distances = floatArrayOf(
+                kotlin.math.abs(py - rect.top),
+                kotlin.math.abs(px - rect.right),
+                kotlin.math.abs(py - rect.bottom),
+                kotlin.math.abs(px - rect.left)
+            )
+            val edge = distances.indices.minByOrNull { distances[it] } ?: 0
+            startDistance = when (edge) {
+                0 -> (px - rect.left) / rect.width().coerceAtLeast(1f) * perimeter * .25f
+                1 -> perimeter * (.25f + (py - rect.top) / rect.height().coerceAtLeast(1f) * .25f)
+                2 -> perimeter * (.5f + (rect.right - px) / rect.width().coerceAtLeast(1f) * .25f)
+                else -> perimeter * (.75f + (rect.bottom - py) / rect.height().coerceAtLeast(1f) * .25f)
+            }
+
+            val shader = android.graphics.SweepGradient(
+                rect.centerX(), rect.centerY(), rainbow, null
+            )
+            val matrix = Matrix().apply {
+                setRotate(routeProgress * 360f, rect.centerX(), rect.centerY())
+            }
+            shader.setLocalMatrix(matrix)
+            paint.shader = shader
+            paint.strokeWidth = 7f
+            paint.alpha = alphaValue
+
+            val routeProgress = progress.coerceAtMost(1f)
+            val travelled = perimeter * routeProgress
+            segment.reset()
+            val end = startDistance + travelled
+            if (end <= perimeter) {
+                measure.getSegment(startDistance, end, segment, true)
+            } else {
+                measure.getSegment(startDistance, perimeter, segment, true)
+                measure.getSegment(0f, end - perimeter, segment, true)
+            }
+            canvas.drawPath(segment, paint)
+
+            // Expanding translucent rings create the water-touch appearance.
+            val maxRadius = kotlin.math.max(b.width(), b.height()) * .78f
+            val radius = maxRadius * routeProgress
+            wavePaint.shader = null
+            wavePaint.strokeWidth = 3f
+            val colors = intArrayOf(Color.CYAN, Color.MAGENTA, Color.YELLOW)
+            for (i in colors.indices) {
+                wavePaint.color = colors[i]
+                wavePaint.alpha = (alphaValue * (1f - routeProgress * .55f)).toInt().coerceIn(0, 255)
+                canvas.drawCircle(touchX, touchY, radius + i * 9f, wavePaint)
+            }
+            paint.shader = null
+        }
+
+        override fun setAlpha(alpha: Int) { alphaValue = alpha; invalidateSelf() }
+        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) { paint.colorFilter = colorFilter }
+        @Deprecated("Deprecated in Android")
+        override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()

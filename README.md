@@ -122,3 +122,12 @@ Build: GitHub Actions workflow `Hima Board Android Build`. The source is prepare
 - Keyboard toolbar now displays the HIMA logo and HIMA Board branding.
 - Enabling HIMA Board in Android input settings automatically returns the app to its Settings panel.
 - App Settings unlock as soon as the keyboard is enabled; selecting HIMA Board remains a separate optional activation step.
+
+
+## Version 3.4 update
+- Custom main-key color palette in Settings, with reset to the selected keyboard style defaults.
+- A typing test field in Settings that opens the active Android keyboard for live testing.
+- Keyboard gallery images are decoded at a screen-appropriate size and center-cropped to the keyboard aspect ratio, avoiding stretched photos and reducing memory use.
+- App version: 3.4 (versionCode 14).
+
+Build note: This source package has not been compiled in this environment. Use the included GitHub Actions workflow to build the APK and test it on the target phone.

@@ -455,6 +455,44 @@ class MainActivity : Activity() {
         ))
 
         parent.addView(section("Key appearance", p))
+        parent.addView(text("Choose the color used by the main letter keys.", 13f, p.muted))
+        val keyColorChoices = listOf(
+            "#FFF0F6", "#DCE8F7", "#DDF3E8", "#EDE3F5",
+            "#FFE8CC", "#D7F0F2", "#26364F", "#202431", "#F7D7E8", "#BFD4FF"
+        )
+        val keyColorGrid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        keyColorChoices.chunked(5).forEach { group ->
+            val colorRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            group.forEach { hex ->
+                val colorValue = Color.parseColor(hex)
+                val swatch = TextView(this).apply {
+                    text = if (prefs.getInt("customKeyColor", Int.MIN_VALUE) == colorValue) "✓" else "●"
+                    textSize = 20f
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.DKGRAY)
+                    background = rounded(colorValue, p.border)
+                    setOnClickListener {
+                        prefs.edit().putInt("customKeyColor", colorValue).apply()
+                        toast("Key color updated")
+                        currentPage = "settings"
+                        render()
+                    }
+                }
+                colorRow.addView(swatch, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
+                    setMargins(dp(3), dp(4), dp(3), dp(4))
+                })
+            }
+            repeat(5 - group.size) { colorRow.addView(View(this), LinearLayout.LayoutParams(0, dp(46), 1f)) }
+            keyColorGrid.addView(colorRow)
+        }
+        parent.addView(keyColorGrid)
+        parent.addView(actionButton("Reset key color", p) {
+            prefs.edit().remove("customKeyColor").apply()
+            toast("Default key colors restored")
+            currentPage = "settings"
+            render()
+        })
+
         parent.addView(sliderSetting(
             "Key opacity",
             prefs.getInt("keyOpacity", 94).coerceIn(35, 100),
@@ -530,6 +568,30 @@ class MainActivity : Activity() {
             toast("Keyboard background reset")
         })
 
+        parent.addView(section("Keyboard test", p))
+        parent.addView(text("Tap the box below, then type using HIMA Board to test your keyboard.", 13f, p.muted))
+        val typingTest = EditText(this).apply {
+            hint = "Start typing here…"
+            textSize = 16f
+            setTextColor(p.text)
+            setHintTextColor(p.muted)
+            minLines = 3
+            maxLines = 5
+            gravity = Gravity.TOP or Gravity.START
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = rounded(p.raised, p.border)
+        }
+        parent.addView(typingTest, LinearLayout.LayoutParams(-1, dp(116)).apply {
+            topMargin = dp(8)
+        })
+        parent.addView(actionButton("Clear typing test", p) {
+            typingTest.setText("")
+            typingTest.requestFocus()
+        })
+
         parent.addView(section("Typing feedback", p))
         parent.addView(toggleRow(
             "Key sound",
@@ -566,7 +628,7 @@ class MainActivity : Activity() {
         parent.addView(actionButton("Restore from clipboard", p) { restoreSettingsBackup() })
 
         parent.addView(space(16))
-        parent.addView(text("Hima Board  •  Version 3.2", 13f, p.muted).apply {
+        parent.addView(text("Hima Board  •  Version 3.4", 13f, p.muted).apply {
             gravity = Gravity.CENTER
         })
         parent.addView(text("Developed by Vishath Kaushika", 12f, p.muted).apply {

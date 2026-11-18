@@ -1,24 +1,13 @@
-HIMA Board v3.0 Pro
+HIMA Board v3.4
 
-Android keyboard + companion app source.
+New in this update:
+- Change main keyboard key colors from Settings.
+- Test typing in the Settings test area.
+- Gallery wallpaper images are center-cropped to the keyboard shape, not stretched.
 
-Highlights:
-- Cute, Normal and Developer keyboard styles
-- Clipboard popup with latest text and pinned clips
-- Quick phrases with custom saved phrases
-- Settings backup and restore using a HIMA3 clipboard code
-- Photo backgrounds, theme, key size, opacity, roundness, sound, vibration and touch ripple controls
-- Scientific input panel (inserts math expressions; it does not evaluate them)
-- Sinhala / English / basic Singlish modes
+Keep your existing .git folder when replacing project files. Push to GitHub main or run Actions manually, then download the Hima-Board-debug artifact.
 
-Build:
-1. Keep the existing Git repository .git folder.
-2. Replace project files with the contents of this ZIP.
-3. Push to the main branch or run the GitHub Actions workflow manually.
-4. Download the Hima-Board-debug artifact.
-
-Developer: Vishath Kaushika
 Package: com.vish.keyboard
-Version: 3.0 (versionCode 9)
-
-Build note: This source package has not been built with Gradle in this environment. Run GitHub Actions and test the APK on a device before release.
+Version: 3.4 (versionCode 14)
+Build note: Not Gradle-built in this environment; use GitHub Actions and test on device.
+Developer: Vishath Kaushika
