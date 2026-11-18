@@ -239,8 +239,13 @@ class VishKeyboardService : InputMethodService() {
                         if (keyCode != android.view.KeyEvent.KEYCODE_UNKNOWN) {
                             val meta = (if (ctrlArmed) android.view.KeyEvent.META_CTRL_ON else 0) or
                                 (if (altArmed) android.view.KeyEvent.META_ALT_ON else 0)
-                            currentInputConnection?.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyCode, meta))
-                            currentInputConnection?.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, keyCode, meta))
+                            val eventTime = android.os.SystemClock.uptimeMillis()
+                            currentInputConnection?.sendKeyEvent(
+                                android.view.KeyEvent(eventTime, eventTime, android.view.KeyEvent.ACTION_DOWN, keyCode, 0, meta)
+                            )
+                            currentInputConnection?.sendKeyEvent(
+                                android.view.KeyEvent(eventTime, eventTime, android.view.KeyEvent.ACTION_UP, keyCode, 0, meta)
+                            )
                         }
                         ctrlArmed = false
                         altArmed = false
