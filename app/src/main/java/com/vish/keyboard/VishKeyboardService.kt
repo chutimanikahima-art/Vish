@@ -34,6 +34,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.ScrollView
 import android.widget.PopupWindow
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class VishKeyboardService : InputMethodService() {
 
@@ -47,6 +50,15 @@ class VishKeyboardService : InputMethodService() {
     private val calculatorExpression = StringBuilder()
     private var calculatorAnswer = ""
     private var keyboardRoot: View? = null
+    private var clockTextView: TextView? = null
+    private val clockHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val clockFormat = SimpleDateFormat("hh:mm:ss a", Locale.getDefault())
+    private val clockTick = object : Runnable {
+        override fun run() {
+            clockTextView?.text = "◷ " + clockFormat.format(Date())
+            clockHandler.postDelayed(this, 1000L)
+        }
+    }
     private val singlishBuffer = StringBuilder()
     private val repeatHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val repeatDeleteRunnable = object : Runnable {
@@ -99,6 +111,7 @@ class VishKeyboardService : InputMethodService() {
     }
 
     override fun onDestroy() {
+        clockHandler.removeCallbacks(clockTick)
         prefs.unregisterOnSharedPreferenceChangeListener(preferenceListener)
         super.onDestroy()
     }
@@ -193,6 +206,21 @@ class VishKeyboardService : InputMethodService() {
         brand.isFocusable = true
         brand.setOnClickListener { showLoveAnimation() }
         toolbar.addView(brand, LinearLayout.LayoutParams(0, dp(34), 1f))
+        val clockView = TextView(this).apply {
+            text = "◷ " + clockFormat.format(Date())
+            textSize = 10.5f
+            setTextColor(c.text)
+            typeface = Typeface.MONOSPACE
+            gravity = Gravity.CENTER
+            setPadding(dp(5), 0, dp(5), 0)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { showClockPopup() }
+        }
+        clockTextView = clockView
+        toolbar.addView(clockView, LinearLayout.LayoutParams(dp(92), dp(34)))
+        clockHandler.removeCallbacks(clockTick)
+        clockHandler.post(clockTick)
         toolbar.addView(makeKey(if (calculatorMode) "ABC" else "SCI", .9f,
             if (calculatorMode) c.accent else c.specialKey, 34, 13f, c) {
             calculatorMode = !calculatorMode
@@ -573,14 +601,69 @@ class VishKeyboardService : InputMethodService() {
         }
     }
 
+    private fun showClockPopup() {
+        val now = Date()
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(22), dp(20), dp(22), dp(18))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Color.rgb(34, 29, 55), Color.rgb(15, 23, 38))
+            ).apply {
+                cornerRadius = dp(24).toFloat()
+                setStroke(dp(1), Color.rgb(183, 105, 235))
+            }
+            elevation = dp(18).toFloat()
+        }
+        panel.addView(TextView(this).apply {
+            text = "HIMA CLOCK"
+            textSize = 12f
+            letterSpacing = .18f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.rgb(226, 177, 255))
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(-1, dp(24)))
+        val bigTime = TextView(this).apply {
+            text = clockFormat.format(now)
+            textSize = 30f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        panel.addView(bigTime, LinearLayout.LayoutParams(-1, dp(54)))
+        val dateFormat = SimpleDateFormat("EEEE, dd MMMM yyyy", Locale.getDefault())
+        panel.addView(TextView(this).apply {
+            text = dateFormat.format(now)
+            textSize = 14f
+            setTextColor(Color.rgb(211, 211, 228))
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(-1, dp(30)))
+        panel.addView(TextView(this).apply {
+            text = "Sri Lanka time  •  UTC +5:30"
+            textSize = 11f
+            setTextColor(Color.rgb(170, 163, 190))
+            gravity = Gravity.CENTER
+            setPadding(0, dp(5), 0, 0)
+        }, LinearLayout.LayoutParams(-1, dp(25)))
+        val popup = PopupWindow(panel, dp(300), dp(180), true).apply {
+            isOutsideTouchable = true
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            elevation = dp(18).toFloat()
+        }
+        popupRef = popup
+        keyboardRoot?.let { popup.showAtLocation(it, Gravity.CENTER, 0, 0) }
+    }
+
     private fun showLoveAnimation() {
         val message = TextView(this).apply {
-            text = "Love you ❤️"
-            textSize = 25f
+            text = "I love you\nchuti manika\nhimasha❤️vishath"
+            textSize = 20f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            setPadding(dp(24), dp(16), dp(24), dp(16))
+            setPadding(dp(20), dp(16), dp(20), dp(16))
             background = GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
                 intArrayOf(Color.rgb(238, 91, 174), Color.rgb(132, 83, 244))
@@ -590,7 +673,7 @@ class VishKeyboardService : InputMethodService() {
             scaleX = .55f
             scaleY = .55f
         }
-        val popup = PopupWindow(message, dp(230), dp(82), false).apply {
+        val popup = PopupWindow(message, dp(300), dp(118), false).apply {
             isOutsideTouchable = false
             isTouchable = false
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
